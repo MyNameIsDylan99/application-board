@@ -25,7 +25,7 @@ try {
     if (d.method === "Runtime.exceptionThrown") errs.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text);
     // Some Chrome versions report the inline handler of the deliberate XSS probe below while DOMPurify parses it
     // (and block it); the probe itself checks that nothing ran, so a report from inside DOMPurify is not an error.
-    const fromPurify = d.params.entry?.stackTrace?.callFrames?.[0]?.url?.endsWith("/vendor/purify.min.js");
+    const fromPurify = d.params?.entry?.stackTrace?.callFrames?.[0]?.url?.endsWith("/vendor/purify.min.js");
     if (d.method === "Log.entryAdded" && /Content Security Policy|Refused/.test(d.params.entry.text) && !fromPurify) errs.push("CSP: " + d.params.entry.text.slice(0, 90) +
       ` [${d.params.entry.url || ""}:${d.params.entry.lineNumber ?? ""} ${(d.params.entry.stackTrace?.callFrames || []).slice(0, 4).map(f => `${f.functionName}@${f.url.split("/").pop()}:${f.lineNumber}`).join(" < ")}]`); };
   await new Promise(r => ws.onopen = r);
