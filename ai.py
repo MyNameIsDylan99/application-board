@@ -65,10 +65,10 @@ def _run(args, inp, timeout, cwd):
     me = threading.get_ident()
     check_cancelled()
     proc = subprocess.Popen(args, stdin=subprocess.PIPE if inp is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)  # UTF-8 also on Windows
+                            stderr=subprocess.PIPE, cwd=cwd)  # bytes: UTF-8 and \n exactly, also on Windows (text mode writes \r\n there)
     _PROCS[me] = proc
     try:
-        out, err = proc.communicate(inp, timeout=timeout)
+        out, err = proc.communicate(None if inp is None else inp.encode("utf-8"), timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.communicate()
@@ -76,7 +76,8 @@ def _run(args, inp, timeout, cwd):
     finally:
         _PROCS.pop(me, None)
     check_cancelled()
-    return subprocess.CompletedProcess(args, proc.returncode, out, err)
+    text = lambda b: (b or b"").decode("utf-8", "replace").replace("\r\n", "\n")
+    return subprocess.CompletedProcess(args, proc.returncode, text(out), text(err))
 
 
 # ---------- Keys ----------
