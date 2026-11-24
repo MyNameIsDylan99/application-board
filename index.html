@@ -196,28 +196,28 @@
         <div class="hint" data-i18n="pr_details_hint"></div>
         <form id="prForm" class="prform" autocomplete="off">
           <label><span data-i18n="pr_name">Name</span><input name="name"></label>
-          <label><span data-i18n="pr_town">Ort</span><input name="ort"></label>
+          <label><span data-i18n="pr_town">Ort</span><input name="town"></label>
           <label><span data-i18n="pr_email">E-Mail</span><input name="email" type="email"></label>
-          <label><span data-i18n="pr_phone">Telefon</span><input name="telefon"></label>
-          <label class="wide"><span data-i18n="pr_address">Adresse</span><textarea name="adresse" rows="2"></textarea></label>
-          <label><span data-i18n="pr_photo">Foto</span><input name="foto" placeholder="Bilder/foto.jpg"><span class="imgrow"><img id="pr_foto_img" alt="" hidden><label class="btn"><span data-i18n="pr_upload_image">Bild hochladen</span><input type="file" id="pr_foto_file" accept="image/*" hidden></label></span></label>
-          <label><span data-i18n="pr_signature">Unterschrift</span><input name="unterschrift" placeholder="Bilder/unterschrift.png"><span class="imgrow"><img id="pr_unterschrift_img" alt="" hidden><label class="btn"><span data-i18n="pr_upload_image">Bild hochladen</span><input type="file" id="pr_unterschrift_file" accept="image/*" hidden></label></span></label>
-          <label class="wide"><span data-i18n="pr_rules">Schreibregeln (eine pro Zeile)</span><textarea name="regeln" rows="5"></textarea><small data-i18n="pr_rules_hint"></small></label>
-          <label class="wide check"><input type="checkbox" name="ss_statt_sz"><span data-i18n="pr_ss">Schweizer Rechtschreibung: „ß“ in KI-Texten durch „ss“ ersetzen</span></label>
+          <label><span data-i18n="pr_phone">Telefon</span><input name="phone"></label>
+          <label class="wide"><span data-i18n="pr_address">Adresse</span><textarea name="address" rows="2"></textarea></label>
+          <label><span data-i18n="pr_photo">Foto</span><input name="photo" placeholder="images/photo.jpg"><span class="imgrow"><img id="pr_photo_img" alt="" hidden><label class="btn"><span data-i18n="pr_upload_image">Bild hochladen</span><input type="file" id="pr_photo_file" accept="image/*" hidden></label></span></label>
+          <label><span data-i18n="pr_signature">Unterschrift</span><input name="signature" placeholder="images/signature.png"><span class="imgrow"><img id="pr_signature_img" alt="" hidden><label class="btn"><span data-i18n="pr_upload_image">Bild hochladen</span><input type="file" id="pr_signature_file" accept="image/*" hidden></label></span></label>
+          <label class="wide"><span data-i18n="pr_rules">Schreibregeln (eine pro Zeile)</span><textarea name="rules" rows="5"></textarea><small data-i18n="pr_rules_hint"></small></label>
+          <label class="wide check"><input type="checkbox" name="swiss_ss"><span data-i18n="pr_ss">Schweizer Rechtschreibung: „ß“ in KI-Texten durch „ss“ ersetzen</span></label>
           <h3 class="wide" data-i18n="pr_rulecheck">Regel-Check im Editor</h3>
           <label><span data-i18n="pr_rc_min">Wörter mindestens (0 = egal)</span><input name="rc_min" type="number" min="0" max="5000"></label>
           <label><span data-i18n="pr_rc_max">Wörter höchstens (0 = egal)</span><input name="rc_max" type="number" min="0" max="5000"></label>
           <label class="wide"><span data-i18n="pr_rc_chars">Verbotene Zeichen oder Folgen (eine pro Zeile, Leerzeichen zählen mit)</span><textarea name="rc_chars" rows="3"></textarea></label>
           <h3 class="wide" data-i18n="pr_file_names">Dateinamen</h3>
-          <label><span data-i18n="pr_dn_anschreiben">Anschreiben</span><input name="dn_anschreiben"></label>
-          <label><span data-i18n="pr_dn_lebenslauf">Lebenslauf</span><input name="dn_lebenslauf"></label>
+          <label><span data-i18n="pr_dn_anschreiben">Anschreiben</span><input name="dn_cover_letter"></label>
+          <label><span data-i18n="pr_dn_lebenslauf">Lebenslauf</span><input name="dn_cv"></label>
           <small class="wide" data-i18n="pr_dn_hint"></small>
           <h3 class="wide" data-i18n="pr_storage">Ablage im Datenordner</h3>
-          <label><span data-i18n="pr_f_profil">Profil</span><input name="df_profil"></label>
-          <label><span data-i18n="pr_f_stil">Schreibstil</span><input name="df_stil"></label>
-          <label><span data-i18n="pr_f_suchprofil">Suchprofil</span><input name="df_suchprofil"></label>
-          <label><span data-i18n="pr_f_bewertung">Notenraster</span><input name="df_bewertung"></label>
-          <label><span data-i18n="pr_f_lebenslauf">Lebenslauf</span><input name="df_lebenslauf"></label>
+          <label><span data-i18n="pr_f_profile">Profil</span><input name="df_profile"></label>
+          <label><span data-i18n="pr_f_style">Schreibstil</span><input name="df_style"></label>
+          <label><span data-i18n="pr_f_search_profile">Suchprofil</span><input name="df_search_profile"></label>
+          <label><span data-i18n="pr_f_grading">Notenraster</span><input name="df_grading"></label>
+          <label><span data-i18n="pr_f_cv">Lebenslauf</span><input name="df_cv"></label>
           <label class="wide"><span data-i18n="pr_folders">Verknüpfte Dokument-Ordner (einer pro Zeile, optional „Pfad: Kategorie“)</span><textarea name="folders" rows="3"></textarea></label>
           <div class="wide btns"><button class="primary" data-i18n="save">Speichern</button></div>
         </form>
@@ -232,7 +232,7 @@
       <section data-psec="text" hidden>
         <h2 data-i18n="pr_text_section">Profiltext</h2>
         <div class="hint" data-i18n="pr_text_hint2"></div>
-        <div class="row"><select id="prFileSelect"><option value="profil">Profil</option><option value="stil">Schreibstil</option><option value="suchprofil">Suchprofil</option><option value="bewertung">Notenraster</option><option value="lebenslauf">Lebenslauf</option></select>
+        <div class="row"><select id="prFileSelect"><option value="profile">Profil</option><option value="style">Schreibstil</option><option value="search_profile">Suchprofil</option><option value="grading">Notenraster</option><option value="cv">Lebenslauf</option></select>
           <button id="bPrSave" data-i18n="save">Speichern</button><span id="prDirty" class="muted" hidden>●</span><span class="spacer"></span><button id="bPrSuggest" class="primary"></button></div>
         <div id="prSuggestion" hidden></div>
         <div id="prEditor"></div>
@@ -241,7 +241,7 @@
         <h2 data-i18n="tpl_title">Vorlagen</h2>
         <div class="hint" data-i18n="tpl_hint"></div>
         <div class="tplgrid">
-          <div class="tplcard" data-kind="anschreiben">
+          <div class="tplcard" data-kind="cover_letter">
             <h3 data-i18n="tpl_anschreiben">Anschreiben</h3>
             <select class="tplselect"></select>
             <ul class="tplcheck"></ul>
@@ -249,7 +249,7 @@
             <div class="tplnew"><span data-i18n="tpl_generate">Neu erzeugen aus deinen Angaben:</span> <span class="tpllayouts"></span></div>
             <iframe class="tplpreview" data-i18n-title="preview" title="Vorschau" hidden></iframe>
           </div>
-          <div class="tplcard" data-kind="lebenslauf">
+          <div class="tplcard" data-kind="cv">
             <h3 data-i18n="tpl_lebenslauf">Lebenslauf</h3>
             <select class="tplselect"></select>
             <ul class="tplcheck"></ul>

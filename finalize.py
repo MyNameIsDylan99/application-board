@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Pour a Bewerbungsschreiben_*.md into a cover letter and a CV (docx and pdf).
+"""Pour a letter_*.md (Bewerbungsschreiben_*.md in the German layout) into a cover letter and a CV (docx and pdf).
 
 Takes the finished letter from the section "# Bewerbungsschreiben" (or "# Cover Letter") of a
-Bewerbungsschreiben*.md and fills it into the person's existing Word template (photo header, address table,
+letter file and fills it into the person's existing Word template (photo header, address table,
 body text) by reusing an earlier cover letter docx through XML text replacement. No new layout, no new
 formatting, only the text is exchanged.
 
 Name, e-mail, town and the file name pattern come from the profile in the data folder
-(<data folder>/bewerbungs-board.json, see userprofile.py), not from the code.
+(application-board.json in the data folder, see userprofile.py), not from the code.
 
 Why XML instead of a docx generator: the template contains a photo, a multi-column header table and
 paragraph styles that cannot be rebuilt from Markdown. Reusing an existing file guarantees exactly the same
@@ -38,7 +38,8 @@ Usage:
 Example:
     python finalize.py "Muster AG" --company-short Muster --cv-title "IT Supporter"
 
-Reads Bewerbungen/<company folder>/Bewerbungsschreiben*.md and writes Bewerbungen/<company folder>/
+Reads applications/<company folder>/letter*.md (Bewerbungen/<company folder>/Bewerbungsschreiben*.md in the German
+layout) and writes into the company folder
 <cover letter pattern>.docx/.pdf and, unless --skip-cv, <CV pattern>.docx/.pdf (patterns from the profile,
 default CL_<name>_<company>_<MMYY>).
 
@@ -61,6 +62,7 @@ import zipfile
 
 WORDML_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layout  # noqa: E402
 import storage  # noqa: E402
 import userprofile  # noqa: E402
 
@@ -68,7 +70,7 @@ import userprofile  # noqa: E402
 ANCHOR_EMAIL = ""
 ANCHOR_SIGNATURE = ""
 TOWN = ""
-# Heading of the letter section in a Bewerbungsschreiben*.md; German and English files are both understood
+# Heading of the letter section in a letter file; German and English letters are both understood
 LETTER_MARKERS = ("# Bewerbungsschreiben", "# Cover Letter")
 
 
@@ -80,9 +82,9 @@ def letter_start(md_text: str) -> int:
 def set_profile(p: dict) -> None:
     global ANCHOR_EMAIL, ANCHOR_SIGNATURE, TOWN
     if not p.get("name") or not p.get("email"):
-        raise ValueError(f"Profile incomplete: enter name and email in {userprofile.FILE} in the data folder "
+        raise ValueError("Profile incomplete: enter name and e-mail in the profile of the data folder "
                          "(both appear exactly like this in the Word template and serve as anchors)")
-    ANCHOR_EMAIL, ANCHOR_SIGNATURE, TOWN = p["email"], p["name"], p.get("ort", "")
+    ANCHOR_EMAIL, ANCHOR_SIGNATURE, TOWN = p["email"], p["name"], p.get("town", "")
 
 
 def w(tag: str) -> str:
@@ -291,7 +293,7 @@ def rezip(src_dir: Path, out_path: Path) -> None:
 def latest_template(repo_root: Path, exclude_dir: Path, prefix: str) -> Path:
     candidates = [
         Path(p)
-        for p in glob.glob(str(repo_root / "Bewerbungen" / "*" / f"{prefix}*.docx"))
+        for p in glob.glob(str(layout.get(repo_root).apps / "*" / f"{prefix}*.docx"))
         if Path(p).parent.resolve() != exclude_dir.resolve()
     ]
     if not candidates:
@@ -431,7 +433,7 @@ def convert_to_pdf(docx_path: Path, out_dir: Path) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("company_folder", help='folder name under Bewerbungen/, e.g. "Muster AG"')
+    ap.add_argument("company_folder", help='folder name under applications/ (Bewerbungen/), e.g. "Muster AG"')
     ap.add_argument("--company-short", "--firma-kurz", dest="company_short", required=True, help="short company name for the file name, e.g. Muster")
     ap.add_argument("--mmyy", default=date.today().strftime("%m%y"), help="MMYY for the file name, default today")
     ap.add_argument("--cl-template", help="path to an existing cover letter docx as template, default: the most recently changed one in the data folder")
@@ -439,8 +441,8 @@ def main() -> None:
     ap.add_argument("--cv-title", "--cv-titel", dest="cv_title", help='new job title line for the CV header, e.g. "IT Supporter"; without it the title line of the template stays')
     ap.add_argument("--skip-cv", action="store_true", help="only create the cover letter, no CV")
     ap.add_argument("--repo-root", default=".", help="path to the data folder, default the current directory")
-    ap.add_argument("--out-dir", help="target folder, default Bewerbungen/<company_folder>/")
-    ap.add_argument("--md", help="a specific Bewerbungsschreiben*.md in the company folder (file name), needed when there are several")
+    ap.add_argument("--out-dir", help="target folder, default the company folder")
+    ap.add_argument("--md", help="a specific letter file in the company folder (file name), needed when there are several")
     args = ap.parse_args()
 
     root = Path(args.repo_root).resolve()
@@ -449,19 +451,20 @@ def main() -> None:
         set_profile(prof)
     except ValueError as e:
         sys.exit(str(e))
-    company_dir = root / "Bewerbungen" / args.company_folder
-    md_candidates = sorted(company_dir.glob("Bewerbungsschreiben*.md"))
+    lay = layout.get(root)
+    company_dir = lay.apps / args.company_folder
+    md_candidates = sorted(company_dir.glob(f"{lay.letter}*.md"))
     if not md_candidates:
-        sys.exit(f"No Bewerbungsschreiben*.md found in {company_dir}")
+        sys.exit(f"No {lay.letter}*.md found in {company_dir}")
     md_path = company_dir / args.md if args.md else md_candidates[0]
     if md_path not in md_candidates:
-        sys.exit(f"{args.md} is not a Bewerbungsschreiben*.md in {company_dir}")
+        sys.exit(f"{args.md} is not a {lay.letter}*.md in {company_dir}")
 
     letter = parse_letter_markdown(md_path.read_text(encoding="utf-8"))
-    cl_template = Path(args.cl_template).resolve() if args.cl_template else latest_template(root, company_dir, userprofile.prefix(prof, "anschreiben"))
+    cl_template = Path(args.cl_template).resolve() if args.cl_template else latest_template(root, company_dir, userprofile.prefix(prof, "cover_letter"))
     out_dir = Path(args.out_dir).resolve() if args.out_dir else company_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_cl_docx = out_dir / (userprofile.file_name(prof, "anschreiben", args.company_short, args.mmyy) + ".docx")
+    out_cl_docx = out_dir / (userprofile.file_name(prof, "cover_letter", args.company_short, args.mmyy) + ".docx")
 
     with tempfile.TemporaryDirectory(prefix="finalize_cl_") as tmp:
         build_docx(cl_template, letter, Path(tmp), out_cl_docx)
@@ -471,8 +474,8 @@ def main() -> None:
     print(f"CL pdf:      {cl_pdf}")
 
     if not args.skip_cv:
-        cv_template = Path(args.cv_template).resolve() if args.cv_template else latest_template(root, company_dir, userprofile.prefix(prof, "lebenslauf"))
-        out_cv_docx = out_dir / (userprofile.file_name(prof, "lebenslauf", args.company_short, args.mmyy) + ".docx")
+        cv_template = Path(args.cv_template).resolve() if args.cv_template else latest_template(root, company_dir, userprofile.prefix(prof, "cv"))
+        out_cv_docx = out_dir / (userprofile.file_name(prof, "cv", args.company_short, args.mmyy) + ".docx")
         with tempfile.TemporaryDirectory(prefix="finalize_cv_") as tmp:
             build_cv(cv_template, args.cv_title, Path(tmp), out_cv_docx)
         cv_pdf = convert_to_pdf(out_cv_docx, out_dir)

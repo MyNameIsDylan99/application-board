@@ -1,12 +1,12 @@
 # File formats
 
 Everything the board knows lives in plain files in your data folder. You can edit all of them by hand; the board
-reads them again on the next refresh. Folder names, file names and the field labels below are the stored format.
-German and English labels are both accepted.
+reads them again on the next refresh. Inside letters, logs and job search files German and English labels are both
+accepted. Data folders of the first versions use German folder, file and key names (see "Old data folders" at the end).
 
-## Application letter: `Bewerbungen/<company>/Bewerbungsschreiben_<X>.md`
+## Application letter: `applications/<company>/letter_<X>.md`
 
-One folder per company, one file per application. The file name must start with `Bewerbungsschreiben`. The file
+One folder per company, one file per application. The file name must start with `letter`. The file
 has three parts; only the third one is the letter that goes into the Word template.
 
 ```markdown
@@ -52,7 +52,7 @@ Your Name                              (must be the name from your profile)
 The language of the letter (German or English) is detected from the heading and the salutation. It decides the date
 format, the subject line and which earlier Word file is used as the template.
 
-## Log of a sent application: `Bewerbungen/<company>/Verlauf_<X>.md`
+## Log of a sent application: `applications/<company>/log_<X>.md`
 
 Created by the board when you mark a letter as sent. Events are newest first.
 
@@ -74,10 +74,11 @@ Thank you for your application ...
 ...
 ```
 
-Event types: `Mail rein` (Mail in), `Mail raus` (Mail out), `Termin` (Appointment), `Frist` (Deadline), `Notiz` (Note),
-`Status`. A file keeps the language it was created in.
+Event types: `Mail in` (Mail rein), `Mail out` (Mail raus), `Appointment` (Termin), `Deadline` (Frist), `Note` (Notiz),
+`Status`. A file keeps the language it was created in; the API uses the ids `mail_in`, `mail_out`, `appointment`,
+`deadline`, `note`, `status`.
 
-## Job search result: `Bewerbungen/_Stellensuche/Stellensuche_<date>.md`
+## Job search result: `applications/_jobsearch/jobsearch_<date>.md`
 
 ```markdown
 # Stellensuche 2026-11-14                     (or: # Job search ...)
@@ -100,9 +101,24 @@ Event types: `Mail rein` (Mail in), `Mail raus` (Mail out), `Termin` (Appointmen
 
 | File | Content |
 |---|---|
-| `Bewerbungen/_Review/review.json` | per letter: `status` (`offen`, `final`, `abgeschickt`, `archiv`), `feedback`, `antwort`, `seit`, `phase`, `dateien`, `pruefung`, `claude_session` |
-| `Bewerbungen/_Review/feedback_log.jsonl` | one line per feedback round |
-| `Bewerbungen/_Review/backups/` | versions of letters and profile files, shown under "Earlier versions" |
-| `Bewerbungen/_Stellensuche/suche.json` | job search settings |
-| `Bewerbungen/_Stellensuche/verlauf.jsonl` | every job found so far, to mark new ones |
-| `bewerbungs-board.json` | your profile, see the README |
+| `applications/_review/state.json` | per letter: `status` (`open`, `final`, `sent`, `archived`), `phase` (`sent`, `no_reply`, `replied`, `interview`, `offer`, `rejected`), `feedback`, `answer`, `since`, `files`, `hints`, `claude_session` |
+| `applications/_review/feedback_log.jsonl` | one line per feedback round |
+| `applications/_review/learnings_state.json` | up to which round the learnings were evaluated |
+| `applications/_review/backups/` | versions of letters and profile files, shown under "Earlier versions" |
+| `applications/_jobsearch/search.json` | job search settings |
+| `applications/_jobsearch/history.jsonl` | every job found so far, to mark new ones |
+| `applications/_jobsearch/postings.json` | result of "Still open?" per posting link |
+| `application-board.json` | your profile, see the README |
+
+## Old data folders
+
+Data folders created by the first versions (up to 0.5) use German names. The board recognises them by `Bewerbungen/` or
+`bewerbungs-board.json` and keeps them in that format; `layout.py` has the complete tables.
+
+| English layout | German layout |
+|---|---|
+| `application-board.json` | `bewerbungs-board.json` (keys such as `ort`, `regeln`, `dateiname` with `{firma}`) |
+| `profile/`, `profile/documents/cvs/` ... | `Profil/`, `Profil/Dokumente/Lebenslaeufe/` ... |
+| `applications/<company>/letter_<X>.md`, `log_<X>.md` | `Bewerbungen/<company>/Bewerbungsschreiben_<X>.md`, `Verlauf_<X>.md` |
+| `applications/_review/state.json` | `Bewerbungen/_Review/review.json` (values `offen`, `abgeschickt`, `gespraech` ...) |
+| `applications/_jobsearch/search.json`, `history.jsonl`, `postings.json` | `Bewerbungen/_Stellensuche/suche.json`, `verlauf.jsonl`, `status.json` |

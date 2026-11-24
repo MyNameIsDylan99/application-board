@@ -1,76 +1,54 @@
 """Feedback history and learnings.
 
-Every feedback round (own feedback, the AI's answer) is appended as a line to
-Bewerbungen/_Review/feedback_log.jsonl. On request an AI provider condenses the rounds into lasting learnings;
-the user edits the suggestions and has them written as memory files (same format as Claude's memory: front
-matter name/description/metadata.type, index in MEMORY.md). Which rounds were already evaluated is stored in
-_Review/lernstand.json.
+Every feedback round (own feedback, the AI's answer) is appended as a line to the feedback log
+(applications/_review/feedback_log.jsonl, see layout.py). On request an AI provider condenses the rounds into
+lasting learnings; the user edits the suggestions and has them written as memory files (same format as Claude's
+memory: front matter name/description/metadata.type, index in MEMORY.md). Which rounds were already evaluated is
+stored in learnings_state.json.
 
-The stored keys of the log (ts, path, firma, feedback, antwort, typ, nachgetragen, ...) are the data format
-and stay as they are.
+Keys of a round: ts, path, company, feedback, answer, kind ("undo" for a rejected round), provider, session,
+backfilled, rounds, changed, backup. Folders of the German layout keep their German keys on disk.
 """
-import json
 import re
 from datetime import datetime
 from pathlib import Path
 
 import ai
+import layout
 import userprofile
 
 TYPES = ("feedback", "user", "project", "reference")
 
 
-def log_path(apps):
-    return apps / "_Review" / "feedback_log.jsonl"
+def append(root, entry):
+    layout.get(root).append_jsonl("feedback_log", [{"ts": datetime.now().isoformat(timespec="seconds"), **entry}])
 
 
-def state_path(apps):
-    return apps / "_Review" / "lernstand.json"
-
-
-def append(apps, entry):
-    p = log_path(apps)
-    p.parent.mkdir(exist_ok=True)
-    with p.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"ts": datetime.now().isoformat(timespec="seconds"), **entry}, ensure_ascii=False) + "\n")
-
-
-def read(apps, state=None):
-    """All rounds, oldest first. The first time, the old answers from review.json are added as back-filled
+def read(root, state=None):
+    """All rounds, oldest first. The first time, the old answers from the state file are added as back-filled
     rounds (the feedback itself was not stored back then)."""
-    p = log_path(apps)
-    if not p.is_file() and state:
-        backups = sorted((apps / "_Review" / "backups").glob("*.md")) if (apps / "_Review" / "backups").is_dir() else []
+    lay = layout.get(root)
+    if not lay.feedback_log.is_file() and state:
+        backups = sorted(lay.backups.glob("*.md")) if lay.backups.is_dir() else []
+        old = []
         for rel, e in state.items():
-            if e.get("antwort"):
-                name = Path(rel).name
-                b = [x for x in backups if x.name.endswith(f"_{Path(rel).parent.name}_{name}")]
+            if e.get("answer"):
+                b = [x for x in backups if x.name.endswith(f"_{Path(rel).parent.name}_{Path(rel).name}")]
                 m = re.match(r"(\d{8})_(\d{6})", b[-1].name) if b else None
                 ts = datetime.strptime("".join(m.groups()), "%Y%m%d%H%M%S").isoformat() if m else datetime.now().isoformat(timespec="seconds")
-                p.parent.mkdir(exist_ok=True)
-                with p.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps({"ts": ts, "path": rel, "firma": Path(rel).parent.name, "feedback": "", "antwort": e["antwort"],
-                                        "runden": len(b), "nachgetragen": True}, ensure_ascii=False) + "\n")
-    if not p.is_file():
-        return []
-    out = []
-    for line in p.read_text("utf-8").splitlines():
-        try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return sorted(out, key=lambda e: e.get("ts", ""))
+                old.append({"ts": ts, "path": rel, "company": Path(rel).parent.name, "feedback": "", "answer": e["answer"],
+                            "rounds": len(b), "backfilled": True})
+        if old:
+            lay.append_jsonl("feedback_log", old)
+    return sorted(lay.read_jsonl("feedback_log"), key=lambda e: e.get("ts", ""))
 
 
-def evaluated_until(apps):
-    try:
-        return json.loads(state_path(apps).read_text("utf-8")).get("bis", "")
-    except (FileNotFoundError, json.JSONDecodeError):
-        return ""
+def evaluated_until(root):
+    return (layout.get(root).read_json("learnings_state") or {}).get("until", "")
 
 
-def set_evaluated_until(apps, until):
-    state_path(apps).write_text(json.dumps({"bis": until}) + "\n", "utf-8")
+def set_evaluated_until(root, until):
+    layout.get(root).write_json("learnings_state", {"until": until})
 
 
 PROMPT = """You evaluate feedback rounds in which {person} revised cover letters with an AI.
@@ -100,8 +78,8 @@ LANGUAGE_NAMES = {"de": "German", "en": "English"}
 
 
 def summarize(provider, root, rounds, memory, lang="de"):
-    text = "\n\n".join(f"[{r.get('ts', '')[:10]}] {r.get('firma', '')}\nFeedback: {r.get('feedback') or '(not stored)'}\n"
-                       f"AI answer: {r.get('antwort', '')}" for r in rounds)
+    text = "\n\n".join(f"[{r.get('ts', '')[:10]}] {r.get('company', '')}\nFeedback: {r.get('feedback') or '(not stored)'}\n"
+                       f"AI answer: {r.get('answer', '')}" for r in rounds)
     mem = "\n\n".join(f"--- {m['file']} ---\n{m['content'][:2500]}" for m in memory)
     prof = userprofile.load(root)
     r = userprofile.rules(prof)
@@ -156,16 +134,26 @@ def write(memdir, entries):
     return done
 
 
-if __name__ == "__main__":  # self-test in a temp folder
+if __name__ == "__main__":  # self-test in a temp folder, English and German layout
+    import json
     import tempfile
-    tmp = Path(tempfile.mkdtemp())
-    apps = tmp / "Bewerbungen"
-    (apps / "_Review" / "backups").mkdir(parents=True)
-    (apps / "_Review" / "backups" / "20261110_101500_000001_Firma AG_Bewerbungsschreiben_X.md").write_text("old", "utf-8")
-    old = read(apps, {"Bewerbungen/Firma AG/Bewerbungsschreiben_X.md": {"antwort": "I changed X."}})
-    assert len(old) == 1 and old[0]["nachgetragen"] and old[0]["ts"].startswith("2026-11-10T10:15"), old
-    append(apps, {"path": "p", "firma": "F", "feedback": "shorter", "antwort": "ok"})
-    assert [r["feedback"] for r in read(apps)] == ["", "shorter"]
+    for german in (False, True):
+        tmp = Path(tempfile.mkdtemp())
+        if german:
+            (tmp / "Bewerbungen").mkdir()
+        lay = layout.get(tmp)
+        lay.backups.mkdir(parents=True)
+        letter = lay.rel("apps") + "/Firma AG/" + lay.letter_name("X")
+        (lay.backups / f"20261110_101500_000001_Firma AG_{lay.letter_name('X')}").write_text("old", "utf-8")
+        old = read(tmp, {letter: {"answer": "I changed X."}})
+        assert len(old) == 1 and old[0]["backfilled"] and old[0]["ts"].startswith("2026-11-10T10:15"), old
+        append(tmp, {"path": "p", "company": "F", "feedback": "shorter", "answer": "ok", "kind": "undo"})
+        assert [r["feedback"] for r in read(tmp)] == ["", "shorter"] and read(tmp)[1]["kind"] == "undo"
+        set_evaluated_until(tmp, "2026-11-11")
+        assert evaluated_until(tmp) == "2026-11-11"
+        last = json.loads(lay.feedback_log.read_text("utf-8").splitlines()[-1])
+        assert (last["firma"], last["antwort"], last["typ"]) == ("F", "ok", "rueckgaengig") if german else last["company"] == "F", last
+        assert lay.learnings_state.name == ("lernstand.json" if german else "learnings_state.json")
     mem = tmp / "mem"
     mem.mkdir()
     (mem / "MEMORY.md").write_text("- [Old](feedback_old.md) — x\n", "utf-8")

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""History of the job search (Bewerbungen/_Stellensuche/verlauf.jsonl).
+"""History of the job search (applications/_jobsearch/history.jsonl; Bewerbungen/_Stellensuche/verlauf.jsonl in the
+German layout, see layout.py).
 
 Purpose: normalise URLs the same way every time and make the comparison against earlier findings
 deterministic. Done by hand, every run tends to make the same mistake: the same posting once with and once
@@ -14,13 +15,14 @@ Usage
       Reads candidate URLs (one per line) and prints "NEW <url>" or "KNOWN <url>" for each.
 
   python job_history.py append <data-root> <jobs.json> [YYYY-MM-DD]
-      jobs.json is a list of objects with url, firma, titel, note. The date found defaults to today; it can
-      be given as third argument, per entry in the field "gefunden" or for all in the dict field "datum".
+      jobs.json is a list of objects with url, company, title, note (grade). The date found defaults to today; it
+      can be given as third argument, per entry in the field "found" or for all in the dict field "date".
+      The German field names (firma, titel, gefunden, stellen, datum) work too.
       Only grades A, B or C are added; rejected postings stay out, otherwise they would count as known and
       never show up again. Known URLs are skipped. Output: number of lines appended.
 
 The German subcommands bekannt / pruefen / anhaengen still work (with German output) for existing scripts.
-The stored fields (url, firma, titel, note, gefunden) are the data format and stay as they are.
+Stored fields: url, company, title, note, found (German keys in folders of the German layout).
 """
 
 import json
@@ -29,7 +31,9 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
-HISTORY = Path("Bewerbungen") / "_Stellensuche" / "verlauf.jsonl"
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # also when called from a skill in another folder
+import layout  # noqa: E402
+
 GRADES = {"A", "B", "C"}
 
 
@@ -48,31 +52,18 @@ def normalize(url: str) -> str:
 
 
 def history_path(root: str) -> Path:
-    return Path(root) / HISTORY
+    return layout.get(root).history
 
 
 def known(root: str) -> set:
-    path = history_path(root)
-    if not path.exists():
-        return set()
-    urls = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            urls.add(normalize(json.loads(line)["url"]))
-        except (json.JSONDecodeError, KeyError):
-            print(f"Warning: unreadable line in history: {line[:80]}", file=sys.stderr)
-    return urls
+    return {normalize(e["url"]) for e in layout.get(root).read_jsonl("history") if e.get("url")}
 
 
 def append(root: str, jobs: list, found: str) -> int:
-    path = history_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
     seen = known(root)
     new = []
     for s in jobs:
+        s = layout.translate(s, layout.FILE_KEYS["history"], {})  # German input fields (firma, titel, gefunden) too
         grade = str(s.get("note", "")).strip().upper()
         if grade not in GRADES:
             print(f"Skipped (grade {grade or 'missing'} instead of A/B/C): {s.get('url')}", file=sys.stderr)
@@ -81,11 +72,10 @@ def append(root: str, jobs: list, found: str) -> int:
         if not url or url in seen:
             continue
         seen.add(url)
-        new.append({"url": url, "firma": s.get("firma", ""), "titel": s.get("titel", ""),
-                    "note": grade, "gefunden": s.get("gefunden") or found})
-    with path.open("a", encoding="utf-8") as f:
-        for entry in new:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        new.append({"url": url, "company": s.get("company", ""), "title": s.get("title", ""),
+                    "note": grade, "found": s.get("found") or found})
+    if new:
+        layout.get(root).append_jsonl("history", new)
     return len(new)
 
 
@@ -111,10 +101,10 @@ def main() -> int:
                 print(f"{word} {url}")
     elif command == "append":
         data = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
-        jobs = data if isinstance(data, list) else data.get("stellen", [])
+        jobs = data if isinstance(data, list) else data.get("jobs", data.get("stellen", []))
         found = date.today().isoformat()
-        if isinstance(data, dict) and data.get("datum"):
-            found = data["datum"]
+        if isinstance(data, dict) and (data.get("date") or data.get("datum")):
+            found = data.get("date") or data["datum"]
         if len(sys.argv) > 4:
             found = sys.argv[4]
         n = append(root, jobs, found)

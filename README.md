@@ -128,48 +128,54 @@ Without the second argument it uses `APPLICATION_BOARD_ROOT` or the data folder 
 
 ## Data folder and profile
 
-App and data are separate. This repository contains only general code; everything personal lives in the data folder. The folder and file names below and the keys in the JSON files are the stored format and stay German in every interface language.
+App and data are separate. This repository contains only general code; everything personal lives in the data folder:
 
 ```
 <data folder>/
-  bewerbungs-board.json            # profile: name, town, e-mail, file names, writing rules, the paths below
-  Profil/
-    Dokumente/<category>/          # uploaded certificates, CVs, diplomas, letters
-    profil.md                      # your CV as text: the only source of facts for the AI
-    stil.md                        # writing style
-    suchprofil.md                  # search fields (**1. Name.** … Search terms: …), commuting distance, exclusions
-    bewertung.md                   # grading scale A/B/C of the job search
-    lebenslauf.md                  # CV content: # title, ## section, ### period | title | place, - point
-    Vorlagen/                      # generated and uploaded Word templates (created by the app)
-  Bewerbungen/
+  application-board.json           # profile: name, town, e-mail, file names, writing rules, the paths below
+  profile/
+    documents/<category>/          # uploaded certificates, CVs, diplomas, letters (cvs, certificates, diplomas, letters, other)
+    profile.md                     # your CV as text: the only source of facts for the AI
+    style.md                       # writing style
+    search-profile.md              # search fields (**1. Name.** … Search terms: …), commuting distance, exclusions
+    grading.md                     # grading scale A/B/C of the job search
+    cv.md                          # CV content: # title, ## section, ### period | title | place, - point
+    templates/                     # generated and uploaded Word templates (created by the app)
+  applications/
     <company>/
-      Bewerbungsschreiben_<X>.md   # job info, requirements mapping, then the letter under "# Bewerbungsschreiben" or "# Cover Letter"
-      Verlauf_<X>.md               # pipeline: events, preparation, notes (created by the app)
+      letter_<X>.md                # job info, requirements mapping, then the letter under "# Cover Letter" or "# Bewerbungsschreiben"
+      log_<X>.md                   # pipeline: events, preparation, notes (created by the app)
       CL_<name>_<company>_MMYY.docx/.pdf   # created by finalizing
-    _Review/                       # status, feedback log, backups (created by the app)
-    _Stellensuche/                 # runs, history, suche.json (search fields, places, centers with coordinates, exclusions)
+    _review/                       # state.json (status, phase, feedback), feedback_log.jsonl, backups/ (created by the app)
+    _jobsearch/                    # jobsearch_<date>.md runs, history.jsonl, postings.json, search.json (search fields, places, ...)
 ```
 
-The exact format of letters, logs and job search files is described in [docs/format.md](docs/format.md).
+The exact format of letters, logs and job search files is described in [docs/format.md](docs/format.md). The language of a
+letter and its log follows the posting (German or English headings both work); the folder and key names are always English.
 
-`bewerbungs-board.json` (example in `example/`, fields and defaults in `userprofile.py`):
+**Data folders of the first versions** (up to 0.5, German names: `bewerbungs-board.json`, `Profil/`, `Bewerbungen/`,
+`Bewerbungsschreiben_X.md`, `Verlauf_X.md`, `_Review/review.json`, `_Stellensuche/suche.json`, German JSON keys and values
+such as `ort` or `abgeschickt`) keep working as they are. The board recognises them and writes them back in their own
+format; nothing is renamed. The translation lives in `layout.py`.
+
+`application-board.json` (example in `example/`, fields and defaults in `userprofile.py`):
 
 | Field | Purpose |
 |---|---|
-| `name`, `email` | Appear like this in the Word template and serve as anchors when finalizing; also mark your own mails as "Mail out" |
-| `ort` | Your town, shown after the title in the CV header |
-| `telefon`, `adresse`, `foto`, `unterschrift` | Phone, address, photo and signature for templates; photo and signature as paths in the data folder |
-| `vorlagen` | Chosen Word templates `{"anschreiben": "...", "lebenslauf": "..."}`; empty means automatic |
-| `dokument_ordner` | Existing folders that count as documents (`[{"pfad": "Zeugnisse", "kategorie": "Zeugnisse"}]`), read only |
-| `dateiname` | Pattern for cover letter and CV, placeholders `{name}`, `{firma}`, `{mmyy}` |
-| `regeln` | Writing rules that go into every AI prompt |
-| `ss_statt_sz` | Swiss spelling: replace "ß" with "ss" in AI texts |
-| `regelcheck` | Rule check in the editor: `{"woerter_min": 300, "woerter_max": 350, "zeichen": ["ß", " - "]}`; 0 or empty means no check |
-| `dateien` | Where profile, style, search profile, grading scale and CV content live (relative to the data folder) |
+| `name`, `email` | Appear like this in the Word template and serve as anchors when finalizing; also mark your own mails as "mail out" |
+| `town` | Your town, shown after the title in the CV header |
+| `phone`, `address`, `photo`, `signature` | Phone, address, photo and signature for templates; photo and signature as paths in the data folder |
+| `templates` | Chosen Word templates `{"cover_letter": "...", "cv": "..."}`; empty means automatic |
+| `document_folders` | Existing folders that count as documents (`[{"path": "Certificates", "category": "certificates"}]`), read only |
+| `file_names` | Pattern for cover letter and CV, placeholders `{name}`, `{company}`, `{mmyy}` |
+| `rules` | Writing rules that go into every AI prompt |
+| `swiss_ss` | Swiss spelling: replace "ß" with "ss" in AI texts |
+| `rule_check` | Rule check in the editor: `{"words_min": 300, "words_max": 350, "chars": ["ß", " - "]}`; 0 or empty means no check |
+| `files` | Where profile, style, search profile, grading scale and CV content live (relative to the data folder) |
 
 Finalizing works like this:
 
-- It uses the Word template chosen under Profile → Templates (`vorlagen` in `bewerbungs-board.json`).
+- It uses the Word template chosen under Profile → Templates (`templates` in `application-board.json`).
 - If none is chosen, it uses the most recently changed earlier file that matches the file name pattern, in the language of the letter.
 - You can generate a cover letter template there from your details.
 - Without a CV template, only the cover letter is created.
@@ -182,9 +188,10 @@ Finalizing works like this:
 | `storage.py` | Config folder, atomic writes, backups and versions, helper programs (LibreOffice, Poppler) |
 | `ai.py` | AI providers: Claude Code, Anthropic, OpenAI-compatible, Gemini, command |
 | `userprofile.py`, `profile.js` | Profile from the data folder (neutral defaults, validated saving, AI suggestions for profile, style and CV), Profile tab |
-| `templates.py` | Generates cover letter and CV templates (standard library only, CV from `lebenslauf.md`), checks them and renders PDF previews; stored in `Profil/Vorlagen/` |
-| `documents.py` | Profile documents: upload, linked folders, text extraction for the AI (cache in `Profil/.textcache/`) |
+| `templates.py` | Generates cover letter and CV templates (standard library only, CV from `profile/cv.md`), checks them and renders PDF previews; stored in `profile/templates/` |
+| `documents.py` | Profile documents: upload, linked folders, text extraction for the AI (cache in `profile/.textcache/`) |
 | `finalizing.py`, `finalize.py` | Word/PDF from the template and the checks. `finalize.py` also works on the command line: `python3 finalize.py "<company>" --company-short X --repo-root <data folder>` |
+| `layout.py` | Folder, file and key names of a data folder; reads and writes the German layout of the first versions |
 | `job_history.py` | URL normalization and history of the job search (also a command line tool) |
 | `jobsearch.py` | Job search (jobs.ch, LinkedIn, company job feeds), rating, result file, "still open?" check, drafting an application |
 | `pipeline.py`, `pipeline.js` | Pipeline, dossier, interview preparation |

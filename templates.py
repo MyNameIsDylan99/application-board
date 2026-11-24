@@ -6,7 +6,8 @@ as last paragraph marks the letter cell (salutation, text, closing, name); the d
 row directly above. The templates generated here are built exactly like that, with the standard library only
 (a docx is a ZIP of XML).
 
-Stored in the data folder: Profil/Vorlagen/, preview PDFs in Profil/Vorlagen/.vorschau/.
+Stored in the data folder: profile/templates/, preview PDFs in profile/templates/.preview/ (Profil/Vorlagen/ and
+.vorschau/ in the German layout, see layout.py).
 Placeholder texts and check messages follow the UI language (de/en).
 """
 import io
@@ -19,12 +20,12 @@ from xml.dom.minidom import parseString
 from xml.sax.saxutils import escape
 
 import finalize
+import layout as data_layout
 import userprofile
 
-FOLDER = "Profil/Vorlagen"
 LAYOUTS = {
     "modern": {"font": "Arial", "accent": "2B5FD9", "photo": True},
-    "klassisch": {"font": "Georgia", "accent": "333333", "photo": False},
+    "classic": {"font": "Georgia", "accent": "333333", "photo": False},
 }
 EMU_CM = 360000
 
@@ -117,9 +118,9 @@ def _photo(cx, cy):
 
 def _load_photo(root, p, layout, height_cm):
     """(drawing XML, image data) or ("", None) when the layout has no photo or there is none."""
-    if not (layout["photo"] and p.get("foto")):
+    if not (layout["photo"] and p.get("photo")):
         return "", None
-    f = Path(root) / p["foto"]
+    f = Path(root) / p["photo"]
     if not f.is_file() or f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
         return "", None
     data = f.read_bytes()
@@ -154,7 +155,7 @@ def _docx(root, target, body, photo_data):
 
 
 def _contact(p):
-    return [z for z in (p.get("adresse") or p.get("ort") or "").splitlines() if z.strip()] + [x for x in (p.get("telefon"), p["email"]) if x]
+    return [z for z in (p.get("address") or p.get("town") or "").splitlines() if z.strip()] + [x for x in (p.get("phone"), p["email"]) if x]
 
 
 def cover_letter(root, layout="modern", target=None, ui="de"):
@@ -175,19 +176,19 @@ def cover_letter(root, layout="modern", target=None, ui="de"):
                          _cell(4819, sender, border_bottom=accent) + _cell(4819, recipient, border_bottom=accent)], [4819, 4819])
     else:
         header = _table([_cell(4819, big_name + sender, border_bottom=accent) + _cell(4819, recipient, border_bottom=accent)], [4819, 4819])
-    date_line = _p(f"{p.get('ort') or ph['town']}, {ph['date']}", 360, font=font, size=10)
+    date_line = _p(f"{p.get('town') or ph['town']}, {ph['date']}", 360, font=font, size=10)
     letter = "".join([_p(ph["subject"], 200, font=font, size=11, bold=True),
                       _p(ph["salutation"], 200, font=font, size=11),
                       _p(ph["body"], 200, font=font, size=11),
-                      _p(ph["closing_ss"] if p.get("ss_statt_sz") else ph["closing"], 600, font=font, size=11),
+                      _p(ph["closing_ss"] if p.get("swiss_ss") else ph["closing"], 600, font=font, size=11),
                       _p(p["name"], 0, font=font, size=11)])
     gap = '<w:p><w:pPr><w:spacing w:after="360"/></w:pPr></w:p>'
     # date and letter as two rows of the SAME table: finalize.py finds the date as the single-cell row right above the letter
     text = _table([_cell(width, date_line, top=True), _cell(width, letter, top=True)], [width])
-    return _docx(root, Path(target) if target else Path(root) / FOLDER / f"{ph['file_cl']}_{layout}.docx", header + gap + text, photo_data)
+    return _docx(root, Path(target) if target else data_layout.get(root).templates / f"{ph['file_cl']}_{layout}.docx", header + gap + text, photo_data)
 
 
-# ---------- CV from Profil/lebenslauf.md ----------
+# ---------- CV from the CV content (profile/cv.md) ----------
 # Structure of the Markdown file (the AI creates it in the Profile tab, it can be edited there):
 #   # Title under the name           (optional, e.g. "Software Engineer")
 #   short profile as free text       (optional)
@@ -239,18 +240,18 @@ def _para(content, after=0, before=0, indent=None, border=None, align=None):
 
 
 def cv(root, layout="modern", target=None, ui="de"):
-    """Generates a CV docx from Profil/lebenslauf.md (path in the profile under dateien.lebenslauf)."""
+    """Generates a CV docx from the CV content (profile/cv.md, path in the profile under files.cv)."""
     p = userprofile.load(root)
     finalize.set_profile(p)
-    md = userprofile.text(root, p, "lebenslauf")
+    md = userprofile.text(root, p, "cv")
     if not md.strip():
-        raise ValueError(f"{p['dateien']['lebenslauf']} is missing or empty: create it first in the Profile tab under Profile text")
+        raise ValueError(f"{p['files']['cv']} is missing or empty: create it first in the Profile tab under Profile text")
     data = read_cv(md)
     L, ph = LAYOUTS[layout], PLACEHOLDERS.get(ui, PLACEHOLDERS["en"])
     font, accent = L["font"], L["accent"]
     photo, photo_data = _load_photo(root, p, L, 3.4)
     # name as ONE paragraph, directly followed by the title line: that is how finalize.py recognises the CV (build_cv)
-    title = data["title"] + (f", {p['ort']}" if data["title"] and p.get("ort") else "")
+    title = data["title"] + (f", {p['town']}" if data["title"] and p.get("town") else "")
     head_text = (_para(_run(p["name"], font=font, size=24, bold=True, color=accent), 40)
                  + _para(_run(title or " ", font=font, size=11, color="555555"), 100)
                  + _para(_run("  ·  ".join(_contact(p)), font=font, size=9, color="555555"), 0))
@@ -270,7 +271,7 @@ def cv(root, layout="modern", target=None, ui="de"):
             rows.append(_cell(1900, _para(_run(e["period"], font=font, size=9, color="555555"), 0), top=True) + _cell(7738, right + spacer, top=True))
         if rows:
             parts.append(_table(rows, [1900, 7738]))
-    return _docx(root, Path(target) if target else Path(root) / FOLDER / f"{ph['file_cv']}_{layout}.docx", "".join(parts), photo_data)
+    return _docx(root, Path(target) if target else data_layout.get(root).templates / f"{ph['file_cv']}_{layout}.docx", "".join(parts), photo_data)
 
 
 def check(root, rel, kind, ui="de"):
@@ -283,7 +284,7 @@ def check(root, rel, kind, ui="de"):
         dom = parseString(zipfile.ZipFile(f).read("word/document.xml"))
     except (ValueError, KeyError, zipfile.BadZipFile) as e:
         return {"ok": False, "points": [(False, str(e))]}
-    if kind == "anschreiben":
+    if kind == "cover_letter":
         try:
             c = finalize.find_cells(dom)
             points.append((True, _m(ui, "sender", email=p["email"])))
@@ -301,17 +302,18 @@ def check(root, rel, kind, ui="de"):
 
 
 def allowed(root, rel):
-    """Only docx files in Profil/Vorlagen/ or directly in a company folder under Bewerbungen/."""
+    """Only docx files in the templates folder or directly in a company folder of the applications."""
     f = (Path(root) / rel).resolve()
-    own, apps = (Path(root) / FOLDER).resolve(), (Path(root) / "Bewerbungen").resolve()
+    lay = data_layout.get(root)
+    own, apps = lay.templates.resolve(), lay.apps.resolve()
     if f.suffix.lower() != ".docx" or not f.is_file() or not (f.parent == own or f.parent.parent == apps):
         raise ValueError("Template not allowed")
     return f
 
 
 def upload(root, kind, name, data, ui="de"):
-    """Stores an own docx under Profil/Vorlagen/ (never overwriting). Returns its relative path."""
-    if kind not in ("anschreiben", "lebenslauf"):
+    """Stores an own docx in the templates folder (never overwriting). Returns its relative path."""
+    if kind not in ("cover_letter", "cv"):
         raise ValueError("unknown kind")
     try:
         zipfile.ZipFile(io.BytesIO(data)).read("word/document.xml")
@@ -319,9 +321,9 @@ def upload(root, kind, name, data, ui="de"):
         raise ValueError("Not a valid Word file (.docx)")
     ph = PLACEHOLDERS.get(ui, PLACEHOLDERS["en"])
     stem = re.sub(r"[^\w-]+", "_", Path(name).stem).strip("_")[:50] or "Template"
-    d = Path(root) / FOLDER
+    d = data_layout.get(root).templates
     d.mkdir(parents=True, exist_ok=True)
-    base = f"{ph['file_cl'] if kind == 'anschreiben' else ph['file_cv']}_{stem}"
+    base = f"{ph['file_cl'] if kind == 'cover_letter' else ph['file_cv']}_{stem}"
     p, n = d / f"{base}.docx", 2
     while p.exists():
         p, n = d / f"{base}_{n}.docx", n + 1
@@ -330,9 +332,10 @@ def upload(root, kind, name, data, ui="de"):
 
 
 def preview(root, rel):
-    """PDF next to the template in .vorschau/ (regenerated only when the docx is newer). Returns the relative path."""
+    """PDF in the preview folder next to the templates (regenerated only when the docx is newer). Returns the relative path."""
     f = allowed(root, rel)
-    target = Path(root) / FOLDER / ".vorschau"
+    lay = data_layout.get(root)
+    target = lay.templates / lay.preview
     pdf = target / (re.sub(r"[^\w.-]+", "_", rel) + ".pdf")
     if not pdf.is_file() or pdf.stat().st_mtime < f.stat().st_mtime:
         target.mkdir(parents=True, exist_ok=True)
@@ -343,13 +346,14 @@ def preview(root, rel):
 
 
 def listing(root):
-    """Template candidates: everything in Profil/Vorlagen/ plus earlier files matching the file name pattern."""
+    """Template candidates: everything in the templates folder plus earlier files matching the file name pattern."""
     p = userprofile.load(root)
+    lay = data_layout.get(root)
     out = []
-    for f in sorted((Path(root) / FOLDER).glob("*.docx")) if (Path(root) / FOLDER).is_dir() else []:
-        out.append({"rel": f.relative_to(root).as_posix(), "kind": "lebenslauf" if f.name.lower().startswith(("lebenslauf", "cv")) else "anschreiben", "source": "templates"})
-    for kind in ("anschreiben", "lebenslauf"):
-        for f in sorted(Path(root).glob(f"Bewerbungen/*/{userprofile.prefix(p, kind)}*.docx"), key=lambda x: x.stat().st_mtime, reverse=True)[:6]:
+    for f in sorted(lay.templates.glob("*.docx")) if lay.templates.is_dir() else []:
+        out.append({"rel": f.relative_to(root).as_posix(), "kind": "cv" if f.name.lower().startswith(("lebenslauf", "cv")) else "cover_letter", "source": "templates"})
+    for kind in ("cover_letter", "cv"):
+        for f in sorted(lay.apps.glob(f"*/{userprofile.prefix(p, kind)}*.docx"), key=lambda x: x.stat().st_mtime, reverse=True)[:6]:
             out.append({"rel": f.relative_to(root).as_posix(), "kind": kind, "source": "application"})
     return out
 
@@ -357,17 +361,17 @@ def listing(root):
 if __name__ == "__main__":  # self-test: generate, check, fill with finalize
     import json
     r = Path(tempfile.mkdtemp())
-    (r / "Bewerbungen" / "Testcompany").mkdir(parents=True)
+    (r / "applications" / "Testcompany").mkdir(parents=True)
     (r / "pf.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", 300, 400) + b"\x08\x02\x00\x00\x00" + b"\x00" * 40)
-    (r / userprofile.FILE).write_text(json.dumps({"name": "Zoe Muster", "ort": "Bern", "email": "zoe@example.com", "telefon": "+41 31 000 00 00",
-                                                  "adresse": "Weg 1\n3000 Bern", "foto": "pf.png", "ss_statt_sz": True}), "utf-8")
+    (r / "application-board.json").write_text(json.dumps({"name": "Zoe Muster", "town": "Bern", "email": "zoe@example.com", "phone": "+41 31 000 00 00",
+                                                          "address": "Weg 1\n3000 Bern", "photo": "pf.png", "swiss_ss": True}), "utf-8")
     assert image_size((r / "pf.png").read_bytes()) == (300, 400)
     for ui in ("de", "en"):
         for lay in LAYOUTS:
             rel = cover_letter(r, lay, ui=ui)
-            res = check(r, rel, "anschreiben", ui)
+            res = check(r, rel, "cover_letter", ui)
             assert res["ok"], (lay, res)
-            md = r / "Bewerbungen" / "Testcompany" / "Bewerbungsschreiben_Test.md"
+            md = r / "applications" / "Testcompany" / "letter_Test.md"
             md.write_text("# Infos zur Jobausschreibung\n**Titel:** Dev\n\n# Bewerbungsschreiben\n\nZoe Muster\nWeg 1\n\nACME AG\nz. Hd. Herr X\nStrasse 2\n8000 Zuerich\n\n"
                           "Bern, 9. November 2026\n\n**Bewerbung als Dev**\n\nSehr geehrter Herr X\n\nAbsatz eins.\n\nAbsatz zwei.\n\nFreundliche Gruesse\nZoe Muster\n", "utf-8")
             letter = finalize.parse_letter_markdown(md.read_text("utf-8"))
@@ -381,15 +385,15 @@ if __name__ == "__main__":  # self-test: generate, check, fill with finalize
             assert ph["body"] not in text and ph["recipient"][0] not in text and ph["date"] not in text, (ui, lay)
             assert any(ok and s == _m(ui, "date_row") for ok, s in res["points"]), (lay, res)
     assert Path(cover_letter(r, "modern", ui="en")).name == "CoverLetter_modern.docx"
-    (r / "Profil").mkdir(exist_ok=True)
-    (r / "Profil" / "lebenslauf.md").write_text("# Software Engineer\nShort profile with **bold**.\n\n## Experience\n### 2024 to date | Developer | ACME AG, Bern\n- Built **X**\n- Y\n\n"
+    (r / "profile").mkdir(exist_ok=True)
+    (r / "profile" / "cv.md").write_text("# Software Engineer\nShort profile with **bold**.\n\n## Experience\n### 2024 to date | Developer | ACME AG, Bern\n- Built **X**\n- Y\n\n"
                                                  "## Education\n### 2020 to 2024 | BSc Computer Science | Uni Bern\n\n## Skills\n- **Languages:** Python, C#\n", "utf-8")
-    data = read_cv((r / "Profil" / "lebenslauf.md").read_text("utf-8"))
+    data = read_cv((r / "profile" / "cv.md").read_text("utf-8"))
     assert data["title"] == "Software Engineer" and len(data["sections"]) == 3 and data["sections"][0]["entries"][0]["place"] == "ACME AG, Bern", data
     assert data["sections"][2]["points"] == ["**Languages:** Python, C#"] and data["short"] == ["Short profile with **bold**."], data
     for lay in LAYOUTS:
         rel = cv(r, lay)
-        assert check(r, rel, "lebenslauf")["ok"], lay
+        assert check(r, rel, "cv")["ok"], lay
         out = r / f"cv_{lay}.docx"
         finalize.ANCHOR_SIGNATURE, finalize.TOWN = "Zoe Muster", "Bern"
         with tempfile.TemporaryDirectory() as tmp:

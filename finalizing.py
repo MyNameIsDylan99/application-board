@@ -5,7 +5,7 @@ export through LibreOffice). That needs no AI, so finalizing works with any prov
 the PDF text; optionally the model chosen for the "pruefen" task (any provider) proofreads the text and reports
 issues as hints.
 
-Hints are stored in review.json and shown in the UI, so they are written in the UI language (de/en).
+Hints are stored in the state file and shown in the UI, so they are written in the UI language (de/en).
 """
 import os
 import re
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import ai
 import finalize
+import layout
 import storage
 import userprofile
 
@@ -156,10 +157,11 @@ def fact_warning(found, ui="de"):
 
 
 def short_name(md):
-    """Short company name for the file name ({firma} placeholder). With several letters in the folder the
+    """Short company name for the file name ({company} placeholder). With several letters in the folder the
     file name tells them apart; otherwise the company folder without its legal form is enough."""
-    several = len(list(md.parent.glob("Bewerbungsschreiben*.md"))) > 1
-    base = md.stem.removeprefix("Bewerbungsschreiben").strip("_") if several else ""
+    prefix = next((n for n in layout.NAMES["letter"] if md.name.startswith(n)), "")
+    several = len(list(md.parent.glob(f"{prefix}*.md"))) > 1
+    base = md.stem.removeprefix(prefix).strip("_") if several else ""
     s = base or LEGAL_FORM.sub("", md.parent.name)
     for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue")):
         s = s.replace(a, b)
@@ -171,11 +173,11 @@ def template(root, prof, kind, lang, exclude_dir):
     """The template chosen in the profile, otherwise the newest earlier file matching the file name pattern
     in the letter's language (English is recognised by "Dear" in a cover letter and "EXPERIENCE" in a CV).
     None when there is none."""
-    chosen = (prof.get("vorlagen") or {}).get(kind)
+    chosen = (prof.get("templates") or {}).get(kind)
     if chosen and (root / chosen).is_file():
         return root / chosen
     prefix = userprofile.prefix(prof, kind)
-    candidates = [p for p in (root / "Bewerbungen").glob(f"*/{prefix}*.docx") if p.parent != exclude_dir]
+    candidates = [p for p in layout.get(root).apps.glob(f"*/{prefix}*.docx") if p.parent != exclude_dir]
     if not candidates:
         return None
 
@@ -184,7 +186,7 @@ def template(root, prof, kind, lang, exclude_dir):
             xml = zipfile.ZipFile(p).read("word/document.xml").decode("utf-8", "ignore")
         except (zipfile.BadZipFile, KeyError):
             return None
-        return ("Dear" in xml) if kind == "anschreiben" else ("EXPERIENCE" in xml)
+        return ("Dear" in xml) if kind == "cover_letter" else ("EXPERIENCE" in xml)
 
     matching = [p for p in candidates if english(p) == (lang == "en")]
     return max(matching or candidates, key=lambda p: p.stat().st_mtime)
@@ -228,7 +230,7 @@ def checks(cl_pdf, cv_pdf, letter, md_text, prof=None, ui="de"):
         start = " ".join(paragraph.split()[:6])
         if _norm(start) not in flat:
             hints.append(_t(ui, "paragraph", start=start))
-    if (prof or {}).get("ss_statt_sz") and "ß" in md_text[finalize.letter_start(md_text):]:
+    if (prof or {}).get("swiss_ss") and "ß" in md_text[finalize.letter_start(md_text):]:
         hints.append(_t(ui, "sz"))
     if cv_pdf and _pages(cv_pdf) == 0:
         hints.append(_t(ui, "cv_empty"))
@@ -278,7 +280,7 @@ def add_subject(md_text, lang):
 
 def finalize_letter(root, md, provider=None, ui="de"):
     """Creates cover letter and CV as docx and pdf next to the letter. Raises on hard errors, otherwise returns
-    {"dateien": {...}, "pruefung": [hints], "vorlagen": {...}} (keys as stored in review.json)."""
+    {"files": {...}, "hints": [...], "templates": {"language", "short"}}."""
     prof = userprofile.load(root)
     finalize.set_profile(prof)  # first: raises a clear error when name or e-mail are missing, before anything is written
     md_text = md.read_text("utf-8")
@@ -289,8 +291,8 @@ def finalize_letter(root, md, provider=None, ui="de"):
     letter = finalize.parse_letter_markdown(md_text)  # raises early when the letter part does not fit
     lang = language(md_text)
     short, mmyy = short_name(md), date.today().strftime("%m%y")
-    cl_template = template(root, prof, "anschreiben", lang, md.parent)
-    cv_template = template(root, prof, "lebenslauf", lang, md.parent)
+    cl_template = template(root, prof, "cover_letter", lang, md.parent)
+    cv_template = template(root, prof, "cv", lang, md.parent)
     if not cl_template:
         raise RuntimeError(_t(ui, "no_cl"))
     cmd = [sys.executable, str(SCRIPT), md.parent.name, "--md", md.name, "--company-short", short, "--mmyy", mmyy,
@@ -301,7 +303,7 @@ def finalize_letter(root, md, provider=None, ui="de"):
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-1500:] or f"finalize.py exit {r.returncode}")
     files = {f"{k}_{ext}": md.parent / f"{userprofile.file_name(prof, kind, short, mmyy)}.{ext}"
-             for k, kind in (("cl", "anschreiben"), ("cv", "lebenslauf")) for ext in ("docx", "pdf") if k == "cl" or cv_template}
+             for k, kind in (("cl", "cover_letter"), ("cv", "cv")) for ext in ("docx", "pdf") if k == "cl" or cv_template}
     missing = [p.name for p in files.values() if not p.is_file()]
     if missing:
         raise RuntimeError(_t(ui, "missing", files=", ".join(missing)))
@@ -317,8 +319,8 @@ def finalize_letter(root, md, provider=None, ui="de"):
             hints += ai_check(provider, md_text, pdf_text, root, prof, ui)
         except Exception as e:  # the AI check is an extra; its failure must not break finalizing
             hints.append(_t(ui, "ai_failed", e=str(e)[:200]))
-    return {"dateien": {k: p.relative_to(root).as_posix() for k, p in files.items()}, "pruefung": hints,
-            "vorlagen": {"sprache": lang, "kurz": short}}
+    return {"files": {k: p.relative_to(root).as_posix() for k, p in files.items()}, "hints": hints,
+            "templates": {"language": lang, "short": short}}
 
 
 if __name__ == "__main__":  # self-test without files

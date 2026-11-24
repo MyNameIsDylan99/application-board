@@ -1,43 +1,36 @@
-"""Personal profile from the data folder: <data folder>/bewerbungs-board.json.
+"""Personal profile from the data folder: <data folder>/application-board.json (bewerbungs-board.json in folders of
+the German layout, see layout.py; there the German keys are kept on disk).
 
 Everything that describes the person (name, town, e-mail, file names, writing rules, where the profile,
 style and search profile live) is stored there, not in the code. Missing file or fields fall back to the
-neutral values in DEFAULT. Paths under "dateien" are relative to the data folder.
-
-The JSON keys are the stored data format and stay as they are (German) so existing data keeps working.
+neutral values in DEFAULT. Paths under "files" are relative to the data folder.
 """
 import json
 import re
 import unicodedata
 from pathlib import Path
 
-import storage
+import layout
 
-FILE = "bewerbungs-board.json"
 DEFAULT = {
     "name": "",                 # "First Last", appears under the letter and in the sender block of the Word template
-    "ort": "",                  # town of the date line ("<town>, 12 November 2026") and after the title in the CV
+    "town": "",                 # town of the date line ("<town>, 12 November 2026") and after the title in the CV
     "email": "",                # anchor in the Word template and used to recognise one's own mails
-    "telefon": "",
-    "adresse": "",              # may span several lines, used in templates
-    "foto": "",                 # application photo, relative to the data folder
-    "unterschrift": "",         # signature image, relative to the data folder
-    "dokument_ordner": [],      # linked folders [{"pfad": "Zeugnisse", "kategorie": "Zeugnisse"}], never copied
-    "vorlagen": {"anschreiben": "", "lebenslauf": ""},  # chosen Word templates; empty: newest earlier file matching the file name pattern
-    "dateiname": {"anschreiben": "CL_{name}_{firma}_{mmyy}", "lebenslauf": "CV_{name}_{firma}_{mmyy}"},
-    "regeln": [],               # writing rules added to every AI prompt, one sentence per rule
-    "ss_statt_sz": False,       # Swiss spelling: replace "ß" with "ss" in AI texts
+    "phone": "",
+    "address": "",              # may span several lines, used in templates
+    "photo": "",                # application photo, relative to the data folder
+    "signature": "",            # signature image, relative to the data folder
+    "document_folders": [],     # linked folders [{"path": "Certificates", "category": "certificates"}], never copied
+    "templates": {"cover_letter": "", "cv": ""},  # chosen Word templates; empty: newest earlier file matching the file name pattern
+    "file_names": {"cover_letter": "CL_{name}_{company}_{mmyy}", "cv": "CV_{name}_{company}_{mmyy}"},
+    "rules": [],                # writing rules added to every AI prompt, one sentence per rule
+    "swiss_ss": False,          # Swiss spelling: replace "ß" with "ss" in AI texts
     # rule check in the editor: word range of the letter text (0 = no check) and characters that must not appear
-    "regelcheck": {"woerter_min": 0, "woerter_max": 0, "zeichen": []},
-    "dateien": {                # relative to the data folder
-        "profil": "Profil/profil.md",           # CV as text: positions, projects, skills
-        "stil": "Profil/stil.md",               # writing style of the letters
-        "suchprofil": "Profil/suchprofil.md",   # what to search for, search terms, exclusion criteria
-        "bewertung": "Profil/bewertung.md",     # grading scheme of the job search
-        "lebenslauf": "Profil/lebenslauf.md",   # CV content the CV template is generated from
-    },
+    "rule_check": {"words_min": 0, "words_max": 0, "chars": []},
+    "files": {},                # profile, style, search_profile, grading, cv: relative to the data folder; defaults from layout.py
 }
-TEXT_FIELDS = ("name", "ort", "email", "telefon", "adresse", "foto", "unterschrift")
+TEXT_FIELDS = ("name", "town", "email", "phone", "address", "photo", "signature")
+KINDS = ("cover_letter", "cv")
 
 
 def _relative_ok(v):
@@ -45,63 +38,60 @@ def _relative_ok(v):
 
 
 def save(root, new):
-    """Takes the known fields from new, validates them and writes bewerbungs-board.json.
+    """Takes the known fields from new, validates them and writes the profile file.
     Fields the app does not know are kept in the file."""
-    f = Path(root) / FILE
-    try:
-        old = json.loads(f.read_text("utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        old = {}
+    lay = layout.get(root)
+    old = lay.read_json("profile_file", {})
     for k in TEXT_FIELDS:
         if k in new:
             v = str(new[k] or "").strip()
-            if k in ("foto", "unterschrift") and v and not _relative_ok(v):
+            if k in ("photo", "signature") and v and not _relative_ok(v):
                 raise ValueError(f"{k}: give a path relative to the data folder")
             old[k] = v
-    if "regeln" in new:
-        old["regeln"] = [str(x).strip() for x in new["regeln"] if str(x).strip()]
-    if "ss_statt_sz" in new:
-        old["ss_statt_sz"] = bool(new["ss_statt_sz"])
-    if "regelcheck" in new:
-        r = new["regelcheck"] or {}
+    if "rules" in new:
+        old["rules"] = [str(x).strip() for x in new["rules"] if str(x).strip()]
+    if "swiss_ss" in new:
+        old["swiss_ss"] = bool(new["swiss_ss"])
+    if "rule_check" in new:
+        r = new["rule_check"] or {}
         try:
-            lo, hi = int(r.get("woerter_min") or 0), int(r.get("woerter_max") or 0)
+            lo, hi = int(r.get("words_min") or 0), int(r.get("words_max") or 0)
         except (TypeError, ValueError):
             raise ValueError("Rule check: word counts must be numbers")
         if lo < 0 or hi < 0 or (hi and lo > hi):
             raise ValueError("Rule check: the minimum must not be above the maximum")
-        old["regelcheck"] = {"woerter_min": lo, "woerter_max": hi, "zeichen": [str(z) for z in r.get("zeichen", []) if str(z)][:20]}
-    if "dateiname" in new:
-        d = {k: str(new["dateiname"].get(k, "")).strip() for k in ("anschreiben", "lebenslauf")}
+        old["rule_check"] = {"words_min": lo, "words_max": hi, "chars": [str(z) for z in r.get("chars", []) if str(z)][:20]}
+    if "file_names" in new:
+        d = {k: str(new["file_names"].get(k, "")).strip() for k in KINDS}
         for k, v in d.items():
-            if "{firma}" not in v or re.search(r"[\\/:*?\"<>|]", v):
-                raise ValueError(f"File name {k}: must contain {{firma}} and no special characters such as / : *")
+            if "{company}" not in v or re.search(r"[\\/:*?\"<>|]", v):
+                raise ValueError(f"File name {k}: must contain {{company}} and no special characters such as / : *")
             try:
-                v.format(name="x", firma="x", mmyy="x")
+                v.format(name="x", company="x", mmyy="x")
             except (KeyError, IndexError, ValueError):
-                raise ValueError(f"File name {k}: only the placeholders {{name}}, {{firma}}, {{mmyy}} are allowed")
-        old["dateiname"] = d
-    if "dateien" in new:
-        d = {k: str(v).strip() for k, v in new["dateien"].items() if k in DEFAULT["dateien"]}
+                raise ValueError(f"File name {k}: only the placeholders {{name}}, {{company}}, {{mmyy}} are allowed")
+        old["file_names"] = d
+    if "files" in new:
+        d = {k: str(v).strip() for k, v in new["files"].items() if k in layout.PROFILE_FILES}
         if not all(_relative_ok(v) and v for v in d.values()):
             raise ValueError("Give file paths relative to the data folder")
-        old["dateien"] = {**old.get("dateien", {}), **d}
-    if "vorlagen" in new:
-        v = {k: str(new["vorlagen"].get(k, "") or "").strip() for k in ("anschreiben", "lebenslauf")}
+        old["files"] = {**old.get("files", {}), **d}
+    if "templates" in new:
+        v = {k: str(new["templates"].get(k, "") or "").strip() for k in KINDS}
         if not all(not x or (_relative_ok(x) and x.endswith(".docx")) for x in v.values()):
             raise ValueError("Template: give a docx path relative to the data folder")
-        old["vorlagen"] = v
-    if "dokument_ordner" in new:
-        o = [{"pfad": str(x.get("pfad", "")).strip(), "kategorie": str(x.get("kategorie", "")).strip()} for x in new["dokument_ordner"]]
-        if not all(_relative_ok(x["pfad"]) and x["pfad"] for x in o):
+        old["templates"] = v
+    if "document_folders" in new:
+        o = [{"path": str(x.get("path", "")).strip(), "category": str(x.get("category", "")).strip()} for x in new["document_folders"]]
+        if not all(_relative_ok(x["path"]) and x["path"] for x in o):
             raise ValueError("Give document folders relative to the data folder")
-        old["dokument_ordner"] = o
-    storage.write_atomic(f, json.dumps(old, ensure_ascii=False, indent=2) + "\n")
+        old["document_folders"] = o
+    lay.write_json("profile_file", old)
     return load(root)
 
 
 SUGGESTION = {
-    "profil": """Create or extend the job application profile of {person}. The profile is the only source of facts that
+    "profile": """Create or extend the job application profile of {person}. The profile is the only source of facts that
 cover letters and CVs are later written from, so make it complete, concrete and backed by the sources.
 
 Rules:
@@ -114,7 +104,7 @@ Rules:
 {rules}
 Output the complete new profile (Markdown) between the markers, then a summary:
 ===FILE===
-(complete profil.md)
+(complete profile file)
 ===END===
 ===SUMMARY===
 (two to four sentences in {language}: what is new or changed, what needs checking)
@@ -128,7 +118,7 @@ Output the complete new profile (Markdown) between the markers, then a summary:
 === DOCUMENTS ===
 {sources}
 """,
-    "lebenslauf": """Create the content of a CV for {person} from the profile, the details and earlier CVs.
+    "cv": """Create the content of a CV for {person} from the profile, the details and earlier CVs.
 A Word CV is generated from it automatically, so use exactly this Markdown format:
 
 # Title under the name (job title, short; take it from the existing CV if there is one)
@@ -147,7 +137,7 @@ Rules:
 {rules}
 Output the complete file between the markers, then a summary:
 ===FILE===
-(complete lebenslauf.md)
+(complete CV file)
 ===END===
 ===SUMMARY===
 (two to four sentences in {language}: structure, what needs checking)
@@ -161,7 +151,7 @@ Output the complete file between the markers, then a summary:
 === PROFILE AND EARLIER CVS ===
 {sources}
 """,
-    "stil": """Derive a style description from the earlier cover letters of {person} so that an AI can write future letters
+    "style": """Derive a style description from the earlier cover letters of {person} so that an AI can write future letters
 in the same voice.
 
 Describe in Markdown: tone and attitude, structure (opening, middle, closing), typical phrases and sentence length,
@@ -170,7 +160,7 @@ letters. Keep existing style rules unless the letters contradict them. Write in 
 {rules}
 Output the complete file between the markers, then a summary:
 ===FILE===
-(complete stil.md)
+(complete style file)
 ===END===
 ===SUMMARY===
 (two to four sentences in {language}: what is new or changed)
@@ -186,26 +176,26 @@ LANGUAGE_NAMES = {"de": "German", "en": "English"}
 
 
 def suggestion(provider, root, kind, lang="de"):
-    """AI suggestion for profil.md (from documents), lebenslauf.md (from profile and old CVs) or stil.md
+    """AI suggestion for the profile (from documents), the CV content (from profile and old CVs) or the style
     (from earlier letters). Writes nothing; returns {"new", "old", "summary"}."""
     import ai
     import documents
     p = load(root)
     old = text(root, p, kind)
-    details = "\n".join(f"{k}: {p[k]}" for k in TEXT_FIELDS if p.get(k) and k not in ("foto", "unterschrift"))
-    if kind == "profil":
+    details = "\n".join(f"{k}: {p[k]}" for k in TEXT_FIELDS if p.get(k) and k not in ("photo", "signature"))
+    if kind == "profile":
         sources = documents.collect(root, p)
-    elif kind == "lebenslauf":
-        sources = f"--- Profile ---\n{text(root, p, 'profil')}\n\n" + documents.collect(root, p, categories={"Lebenslaeufe"}, total=30000)
-    elif kind == "stil":
-        letters = sorted(Path(root).glob("Bewerbungen/*/Bewerbungsschreiben*.md"), key=lambda x: x.stat().st_mtime, reverse=True)[:8]
-        sources = "\n\n".join(f"--- {b.parent.name} ---\n{b.read_text('utf-8')[b.read_text('utf-8').rfind('# Bewerbungsschreiben'):][:5000]}" for b in letters)
-        sources += "\n\n" + documents.collect(root, p, categories={"Bewerbungsschreiben"}, total=20000)
+    elif kind == "cv":
+        sources = f"--- Profile ---\n{text(root, p, 'profile')}\n\n" + documents.collect(root, p, categories={"cvs"}, total=30000)
+    elif kind == "style":
+        letters = sorted(layout.get(root).letters(), key=lambda x: x.stat().st_mtime, reverse=True)[:8]
+        sources = "\n\n".join(f"--- {b.parent.name} ---\n{letter_part(b.read_text('utf-8'))[:5000]}" for b in letters)
+        sources += "\n\n" + documents.collect(root, p, categories={"letters"}, total=20000)
         details = ""
     else:
         raise ValueError("unknown kind")
     if not sources.strip():
-        raise ValueError("No readable documents found" if kind == "profil" else "No earlier letters found")
+        raise ValueError("No readable documents found" if kind == "profile" else "No earlier letters found")
     r = rules(p)
     prompt = SUGGESTION[kind].format(person=person(p), rules=f"- Writing rules:\n{r}\n" if r else "", details=details or "(none)",
                                      old=old or "(still empty)", sources=sources[:70000], language=LANGUAGE_NAMES.get(lang, "German"))
@@ -218,12 +208,11 @@ def suggestion(provider, root, kind, lang="de"):
 
 
 def load(root):
-    """Profile merged with the defaults (nested dicts field by field)."""
-    try:
-        own = json.loads((Path(root) / FILE).read_text("utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        own = {}
+    """Profile merged with the defaults (nested dicts field by field), with English keys."""
+    lay = layout.get(root)
+    own = lay.read_json("profile_file", {})
     p = {k: (dict(v) if isinstance(v, dict) else v) for k, v in DEFAULT.items()}
+    p["files"] = dict(lay.profile_files)
     for k, v in own.items():
         if isinstance(p.get(k), dict) and isinstance(v, dict):
             p[k].update(v)
@@ -233,7 +222,7 @@ def load(root):
 
 
 def path(root, p, key):
-    return Path(root) / p["dateien"][key]
+    return Path(root) / p["files"][key]
 
 
 def text(root, p, key, limit=None):
@@ -244,7 +233,16 @@ def text(root, p, key, limit=None):
 
 def facts_text(root, p):
     """Everything the AI may take facts from, for the fact check: profile, CV content and the details."""
-    return "\n".join([text(root, p, "profil"), text(root, p, "lebenslauf"), json.dumps(p, ensure_ascii=False)])
+    return "\n".join([text(root, p, "profile"), text(root, p, "cv"), json.dumps(p, ensure_ascii=False)])
+
+
+LETTER_HEAD = re.compile(r"^# (Bewerbungsschreiben|Cover Letter)\s*$", re.M)  # the letter itself starts here (content language)
+
+
+def letter_part(text):
+    """The letter without job info and mapping: from the heading "# Cover Letter" / "# Bewerbungsschreiben" on."""
+    m = list(LETTER_HEAD.finditer(text))
+    return text[m[-1].start():] if m else text
 
 
 def person(p):
@@ -254,12 +252,12 @@ def person(p):
 
 def rules(p):
     """Writing rules as a "-" list for prompts; empty when none are set."""
-    r = [str(x).strip() for x in p.get("regeln", []) if str(x).strip()]
+    r = [str(x).strip() for x in p.get("rules", []) if str(x).strip()]
     return "\n".join(f"- {x}" for x in r)
 
 
 def ss(t, p):
-    return t.replace("ß", "ss") if p.get("ss_statt_sz") else t
+    return t.replace("ß", "ss") if p.get("swiss_ss") else t
 
 
 def _name_for_file(p):
@@ -271,41 +269,52 @@ def _name_for_file(p):
 
 
 def file_name(p, kind, company, mmyy):
-    """kind: "anschreiben" (cover letter) or "lebenslauf" (CV); without extension."""
-    return p["dateiname"][kind].format(name=_name_for_file(p), firma=company, mmyy=mmyy)
+    """kind: "cover_letter" or "cv"; without extension."""
+    return p["file_names"][kind].format(name=_name_for_file(p), company=company, mmyy=mmyy)
 
 
 def prefix(p, kind):
-    """Fixed start of the file name up to {firma}, used to find earlier files as templates."""
-    return p["dateiname"][kind].split("{firma}")[0].format(name=_name_for_file(p), mmyy="")
+    """Fixed start of the file name up to {company}, used to find earlier files as templates."""
+    return p["file_names"][kind].split("{company}")[0].format(name=_name_for_file(p), mmyy="")
 
 
 def own_mail(p, sender):
-    """Was a mail sent by the person themselves (for "Mail raus")?"""
+    """Was a mail sent by the person themselves (for "mail out")?"""
     a = sender.lower()
     return bool((p.get("email") and p["email"].lower() in a) or (p.get("name") and p["name"].lower() in a))
 
 
-if __name__ == "__main__":  # self-test
+if __name__ == "__main__":  # self-test, English and German layout
     import tempfile
     d = Path(tempfile.mkdtemp())
     empty = load(d)
-    assert empty["name"] == "" and empty["dateien"]["profil"] == "Profil/profil.md" and person(empty) == "the applicant"
-    (d / FILE).write_text(json.dumps({"name": "Zoë Müller", "ort": "Bern", "email": "zoe@x.ch", "ss_statt_sz": True,
-                                      "regeln": ["No dashes", " "], "dateien": {"stil": "x/stil.md"}}), "utf-8")
+    assert empty["name"] == "" and empty["files"]["profile"] == "profile/profile.md" and person(empty) == "the applicant"
+    (d / "application-board.json").write_text(json.dumps({"name": "Zoë Müller", "town": "Bern", "email": "zoe@x.ch", "swiss_ss": True,
+                                                        "rules": ["No dashes", " "], "files": {"style": "x/style.md"}}), "utf-8")
     p = load(d)
-    assert p["dateien"] == {**DEFAULT["dateien"], "stil": "x/stil.md"}, p["dateien"]
-    assert file_name(p, "anschreiben", "ACME", "1126") == "CL_Zoe_Mueller_ACME_1126", file_name(p, "anschreiben", "ACME", "1126")
-    assert prefix(p, "lebenslauf") == "CV_Zoe_Mueller_"
+    assert p["files"] == {**layout.get(d).profile_files, "style": "x/style.md"}, p["files"]
+    assert file_name(p, "cover_letter", "ACME", "1126") == "CL_Zoe_Mueller_ACME_1126", file_name(p, "cover_letter", "ACME", "1126")
+    assert prefix(p, "cv") == "CV_Zoe_Mueller_"
     assert rules(p) == "- No dashes" and ss("Grüße", p) == "Grüsse"
     assert own_mail(p, "Zoë Müller <zoe@x.ch>") and not own_mail(p, "HR <hr@acme.ch>")
-    q = save(d, {"telefon": "+41 1", "regeln": ["a", ""], "dateiname": {"anschreiben": "Letter_{firma}", "lebenslauf": "CV_{name}_{firma}"}})
-    assert q["telefon"] == "+41 1" and q["regeln"] == ["a"] and q["name"] == "Zoë Müller" and q["dateien"]["stil"] == "x/stil.md"
-    for bad in ({"foto": "../x.jpg"}, {"dateiname": {"anschreiben": "CL", "lebenslauf": "CV_{firma}"}},
-                {"dateiname": {"anschreiben": "CL_{firma}_{x}", "lebenslauf": "CV_{firma}"}}, {"dokument_ordner": [{"pfad": "/etc"}]}):
+    q = save(d, {"phone": "+41 1", "rules": ["a", ""], "file_names": {"cover_letter": "Letter_{company}", "cv": "CV_{name}_{company}"}})
+    assert q["phone"] == "+41 1" and q["rules"] == ["a"] and q["name"] == "Zoë Müller" and q["files"]["style"] == "x/style.md"
+    for bad in ({"photo": "../x.jpg"}, {"file_names": {"cover_letter": "CL", "cv": "CV_{company}"}},
+                {"file_names": {"cover_letter": "CL_{company}_{x}", "cv": "CV_{company}"}}, {"document_folders": [{"path": "/etc"}]}):
         try:
             save(d, bad)
             raise AssertionError(bad)
         except ValueError:
             pass
+    g = Path(tempfile.mkdtemp())  # German layout: read and written with the German keys
+    (g / "Bewerbungen").mkdir()
+    (g / "bewerbungs-board.json").write_text(json.dumps({"name": "Zoe", "ort": "Bern", "ss_statt_sz": True, "dateiname": {"anschreiben": "CL_{firma}"},
+                                                        "dokument_ordner": [{"pfad": "Zeugnisse", "kategorie": "Zeugnisse"}]}), "utf-8")
+    p = load(g)
+    assert p["town"] == "Bern" and p["swiss_ss"] and p["file_names"]["cover_letter"] == "CL_{company}" and p["files"]["profile"] == "Profil/profil.md"
+    assert p["document_folders"] == [{"path": "Zeugnisse", "category": "certificates"}]
+    save(g, {"phone": "1"})
+    raw = json.loads((g / "bewerbungs-board.json").read_text("utf-8"))
+    assert raw["telefon"] == "1" and raw["ort"] == "Bern" and raw["dateiname"]["anschreiben"] == "CL_{firma}" and "town" not in raw, raw
+    assert letter_part("# Infos\nx\n# Cover Letter\nDear") == "# Cover Letter\nDear"
     print("ok")

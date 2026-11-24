@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- English data folder: new data folders use `application-board.json`, `profile/` (`profile.md`, `style.md`, `search-profile.md`, `grading.md`, `cv.md`, `documents/<category>/`, `templates/`) and `applications/<company>/letter_X.md` with `log_X.md`, `_review/` (`state.json`, `feedback_log.jsonl`, `learnings_state.json`, `backups/`) and `_jobsearch/` (`jobsearch_<date>.md`, `search.json`, `history.jsonl`, `postings.json`). JSON keys and stored values are English too (`town`, `rules`, `file_names` with `{company}`, status `open`/`sent`/`archived`, phases `sent`/`no_reply`/`replied`/`interview`/`offer`/`rejected`).
+- Data folders of the German layout of the first versions keep working unchanged: the board recognises them and reads and writes their German names, keys and values (`layout.py`). Nothing is renamed on disk.
+- The API uses the English names throughout (event types `mail_in`, `appointment`, ...; template kinds `cover_letter`/`cv`; layout `classic`).
+
 ## 0.5.1
 
 - New name: Application Board (was Bewerbungs-Board). Start scripts `application-board` and `application-board.cmd`, config folder `application-board` (the old folder moves over on the first start), variables `APPLICATION_BOARD_ROOT`, `APPLICATION_BOARD_CONFIG`, `APPLICATION_BOARD_SOFFICE` and so on (the old `BEWERBUNGS_*` names still work), MCP server name `application-board`. The data folder and its file names stay as they are.

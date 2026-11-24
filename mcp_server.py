@@ -14,12 +14,13 @@ import sys
 from pathlib import Path
 
 import jobsearch
+import layout
 import pipeline
 import storage
 import userprofile
 
-VERSION = "0.5.1"
-LETTER = re.compile(r"^Bewerbungen/[^/]+/Bewerbungsschreiben[^/]*\.md$")
+VERSION = "0.6.0"
+LETTER = re.compile(r"^(applications/[^/]+/letter|Bewerbungen/[^/]+/Bewerbungsschreiben)[^/]*\.md$")  # English or German layout
 
 
 def data_root(argv):
@@ -35,23 +36,21 @@ def data_root(argv):
 
 def letter_path(root, rel):
     p = (root / rel).resolve()
-    if not LETTER.match(rel) or not p.is_file() or not p.is_relative_to(root / "Bewerbungen"):
+    if not LETTER.match(rel) or not p.is_file() or not p.is_relative_to(layout.get(root).apps.resolve()):
         raise ValueError("unknown letter path; take one from list_applications")
     return p
 
 
 def list_applications(root, args):
-    try:
-        state = json.loads((root / "Bewerbungen" / "_Review" / "review.json").read_text("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        state = {}
+    lay = layout.get(root)
+    state = lay.read_json("state", {})
     out = []
-    for p in sorted((root / "Bewerbungen").glob("*/Bewerbungsschreiben*.md")):
+    for p in lay.letters():
         rel = p.relative_to(root).as_posix()
         e = state.get(rel, {})
         m = re.search(r"^\*\*(?:Titel|Title):\*\*\s*(.+)$", p.read_text("utf-8"), re.M)
         out.append({"path": rel, "company": p.parent.name, "title": m.group(1).strip() if m else "",
-                    "status": e.get("status", ""), "phase": e.get("phase", ""), "since": e.get("seit", "")})
+                    "status": e.get("status", ""), "phase": e.get("phase", ""), "since": e.get("since", "")})
     return out
 
 
@@ -63,8 +62,8 @@ def read_application(root, args):
 
 def read_profile(root, args):
     prof = userprofile.load(root)
-    return {"details": {k: prof.get(k) for k in ("name", "ort", "email", "regeln")},
-            **{k: userprofile.text(root, prof, k) for k in ("profil", "stil", "suchprofil", "lebenslauf")}}
+    return {"details": {k: prof.get(k) for k in ("name", "town", "email", "rules")},
+            **{k: userprofile.text(root, prof, k) for k in ("profile", "style", "search_profile", "cv")}}
 
 
 def list_job_results(root, args):
@@ -79,18 +78,14 @@ def save_draft(root, args):
     company, content = str(args.get("company", "")).strip(), str(args.get("content", ""))
     if not company or not re.search(r"^# (Bewerbungsschreiben|Cover Letter)\s*$", content, re.M):
         raise ValueError('company missing, or the content has no heading "# Bewerbungsschreiben" / "# Cover Letter" before the letter')
-    d = root / "Bewerbungen" / jobsearch.folder_name(company)
-    d.mkdir(parents=True, exist_ok=True)
-    p, n = d / f"Bewerbungsschreiben_{jobsearch.file_name(company)}.md", 2
-    while p.exists():  # never overwrite
-        p, n = d / f"Bewerbungsschreiben_{jobsearch.file_name(company)}_{n}.md", n + 1
+    p = jobsearch.new_letter_path(root, company)  # never overwrites
     storage.write_atomic(p, userprofile.ss(content.strip(), userprofile.load(root)) + "\n")
     return {"path": p.relative_to(root).as_posix(), "note": "Saved as a new letter; it shows up in the board under Open."}
 
 
 S = {"type": "string"}
 TOOLS = {
-    "list_applications": (list_applications, "All applications of the board: path, company, title, status (offen, final, abgeschickt, archiv) and phase.", {}, []),
+    "list_applications": (list_applications, "All applications of the board: path, company, title, status (open, final, sent, archived) and phase (sent, no_reply, replied, interview, offer, rejected).", {}, []),
     "read_application": (read_application, "One application: the whole Markdown file (job info, mapping, letter) and its log (mails, dates, notes).", {"path": S}, ["path"]),
     "read_profile": (read_profile, "The person's profile: details, profile text (the only source of facts), writing style, search profile, CV content.", {}, []),
     "list_job_results": (list_job_results, "Jobs of the newest job search run with grade, score, pros and gaps.", {}, []),

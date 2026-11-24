@@ -1,9 +1,9 @@
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
-const COLS = ["offen", "final", "abgeschickt"];  // stored status values; "archiv" is shown only on request
+const COLS = ["open", "final", "sent"];  // stored status values; "archived" is shown only on request
 let showArchive = false;
 try { showArchive = localStorage.getItem("rv-archive") === "1"; } catch {}
-const cols = () => showArchive ? [...COLS, "archiv"] : COLS;
+const cols = () => showArchive ? [...COLS, "archived"] : COLS;
 const PANELS = ["list", "editor", "feedback", "preview"];
 const DEFAULT_LAYOUT = {zones: {left: ["list"], center: ["editor"], right: ["preview"], bottom: ["feedback"]}, sizes: {left: 300, right: 420, bottom: 190}, hidden: ["preview"], max: null};
 const ACCENTS = ["", "#2b5fd9", "#1f7a4a", "#b3261e", "#a35c00", "#6b3fa0", "#0e7c86"];
@@ -196,7 +196,7 @@ function renderList() {
     sec.innerHTML = `<h2>${t("col_" + k)}<span>${g.length}</span></h2>`;
     for (const it of g) {
       const idx = o.indexOf(it), d = document.createElement("div");
-      d.className = (boardMode ? "bcard" : "item") + (idx === sel ? " sel" : "") + (it.status === "archiv" ? " archived" : "");
+      d.className = (boardMode ? "bcard" : "item") + (idx === sel ? " sel" : "") + (it.status === "archived" ? " archived" : "");
       d.innerHTML = `<b>${esc(it.company)}</b><small>${esc(it.title || it.file)}</small><div class="chips">${itemChips(it)}</div>`;
       d.onclick = () => go(idx);
       if (boardMode) {
@@ -209,7 +209,7 @@ function renderList() {
     if (boardMode) {
       sec.ondragover = e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; sec.classList.add("over"); };
       sec.ondragleave = () => sec.classList.remove("over");
-      sec.ondrop = e => { e.preventDefault(); sec.classList.remove("over"); const it = items.find(i => i.path === e.dataTransfer.getData("text/plain")); if (!it) return; (k === "final" && it.status === "offen" ? finalizeLetter(it) : setStatusFor(it, k)).catch(err => msg(t("error") + err.message, true)); };
+      sec.ondrop = e => { e.preventDefault(); sec.classList.remove("over"); const it = items.find(i => i.path === e.dataTransfer.getData("text/plain")); if (!it) return; (k === "final" && it.status === "open" ? finalizeLetter(it) : setStatusFor(it, k)).catch(err => msg(t("error") + err.message, true)); };
     }
     (boardMode ? bd : el).append(sec);
   }
@@ -223,11 +223,11 @@ async function setStatusFor(it, s) {
   await refresh();
 }
 
-// result of "Is the posting still open?" (status.json, shared with the job search); used by the letters menu and the dossier
+// result of "Is the posting still open?" (postings.json, shared with the job search); used by the letters menu and the dossier
 function checkLabel(c) { return c?.status === "gone" ? t("pc_gone") : c?.status === "open" ? t("pc_open") : t("pc_btn"); }
 function checkClass(c) { return c?.status === "gone" ? "pc-gone" : c?.status === "open" ? "pc-open" : ""; }
 function checkTitle(c) {
-  return c?.geprueft ? `${t("pc_checked")} ${c.geprueft.split("-").reverse().join(".")}${c.grund ? ", " + c.grund : ""}. ${t("pc_again")}` : t("pc_title");
+  return c?.checked ? `${t("pc_checked")} ${c.checked.split("-").reverse().join(".")}${c.reason ? ", " + c.reason : ""}. ${t("pc_again")}` : t("pc_title");
 }
 function header() {
   const s = cur?.status;
@@ -242,9 +242,9 @@ function header() {
   $("#bLink").hidden = !link; $("#bLink").href = link || "#";
   $("#bCheckM").hidden = !link;
   $("#bCheckM").firstElementChild.textContent = checkLabel(cur?.check); $("#bCheckM").className = checkClass(cur?.check); $("#bCheckM").title = checkTitle(cur?.check);
-  $("#bFinal").hidden = s !== "offen";
+  $("#bFinal").hidden = s !== "open";
   $("#bSent").hidden = s !== "final";
-  const f = cur?.files, showFiles = !!f && s !== "offen";
+  const f = cur?.files, showFiles = !!f && s !== "open";
   // real links instead of window.open: no popup blocker catches them
   const href = rel => rel ? "/file?path=" + encodeURIComponent(rel) + "&v=" + encodeURIComponent(cur.finalized || "") : "#";
   $("#bCL").hidden = !showFiles || !f.cl_pdf; $("#bCV").hidden = !showFiles || !f.cv_pdf;
@@ -253,10 +253,10 @@ function header() {
   $("#bWarn").hidden = !hints.length;
   $("#bWarn").textContent = `${hints.length} ${t(hints.length === 1 ? "fin_hint" : "fin_hints")}`; $("#bWarn").title = hints.join("\n");
   $("#bRefin").disabled = !cur;
-  $("#bBack").hidden = !cur || s === "offen" || s === "archiv";
-  $("#bArchiveM").hidden = !cur; $("#bArchiveM").firstElementChild.textContent = t(s === "archiv" ? "unarchive" : "archive");
+  $("#bBack").hidden = !cur || s === "open" || s === "archived";
+  $("#bArchiveM").hidden = !cur; $("#bArchiveM").firstElementChild.textContent = t(s === "archived" ? "unarchive" : "archive");
   $("#bArchive").classList.toggle("on", showArchive);
-  $("#bBack").firstElementChild.textContent = s === "abgeschickt" ? t("back_final") : t("back_offen");
+  $("#bBack").firstElementChild.textContent = s === "sent" ? t("back_final") : t("back_offen");
   $("#bPrev").classList.toggle("on", preview);
   $("#edEmpty").hidden = !!cur;
 }
@@ -367,11 +367,11 @@ function rules() {
   if (start < 0) { chip(t("no_letter"), "warn", {line: 0, ch: 0}); return; }
   const lines = all.slice(start + 1), text = lines.join("\n");
   const words = text.split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length;
-  // word range and forbidden characters come from the profile (regelcheck in bewerbungs-board.json); 0 means no limit
-  const rc = S.rulecheck || {}, lo = +rc.woerter_min || 0, hi = +rc.woerter_max || 0;
+  // word range and forbidden characters come from the profile (rule_check in the profile); 0 means no limit
+  const rc = S.rulecheck || {}, lo = +rc.words_min || 0, hi = +rc.words_max || 0;
   const target = lo && hi ? `${lo}–${hi}` : lo ? `≥ ${lo}` : hi ? `≤ ${hi}` : "";
   chip(`${words} ${t("words")}`, (lo && words < lo) || (hi && words > hi) ? "warn" : "ok", {line: start + 1, ch: 0}, target && t("words_target") + " " + target);
-  const chars = (rc.zeichen || []).filter(Boolean);
+  const chars = (rc.chars || []).filter(Boolean);
   if (chars.length) {
     const re = new RegExp(chars.map(c => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g");
     let n = 0;
@@ -437,8 +437,8 @@ V.defineEx("wq", "wq", () => save().then(focusList).catch(() => {}));
 V.defineEx("x", "x", () => save().then(focusList).catch(() => {}));
 V.defineEx("quit", "q", focusList);
 V.defineEx("final", "fin", () => finalizeLetter());
-V.defineEx("sent", "sent", () => setStatus("abgeschickt"));
-V.defineEx("offen", "off", () => setStatus("offen"));
+V.defineEx("sent", "sent", () => setStatus("sent"));
+V.defineEx("offen", "off", () => setStatus("open"));
 V.defineEx("next", "n", () => step(1));
 V.defineEx("Next", "N", () => step(-1));
 V.defineEx("fb", "fb", focusFb);
@@ -917,8 +917,8 @@ $("#bFinal").onclick = () => finalizeLetter();
 $("#bMarkFinal").onclick = () => setStatus("final");
 $("#bRefin").onclick = () => finalizeLetter();
 $("#bWarn").onclick = () => cur && showHints(cur.path, cur.hints || []);
-$("#bSent").onclick = () => setStatus("abgeschickt");
-$("#bBack").onclick = () => setStatus(cur.status === "abgeschickt" ? "final" : "offen");
+$("#bSent").onclick = () => setStatus("sent");
+$("#bBack").onclick = () => setStatus(cur.status === "sent" ? "final" : "open");
 $("#bHelp").onclick = () => $("#help").classList.toggle("on");
 $("#help").onclick = e => { if (e.target === $("#help") || e.target.closest(".close")) $("#help").classList.remove("on"); };
 $("#list").addEventListener("focus", () => { setActive("list"); mode = t("mode_list"); bar(); });
@@ -957,8 +957,8 @@ document.addEventListener("keydown", e => {
   const vim = {
     j: () => step(1), k: () => step(-1), G: () => go(ordered().length - 1),
     i: focusEd, l: focusEd, c: focusFb,
-    A: applyFeedback, F: () => cur?.status === "offen" && finalizeLetter(), S: () => setStatus("abgeschickt"),
-    O: () => cur && setStatus(cur.status === "abgeschickt" ? "final" : "offen"),
+    A: applyFeedback, F: () => cur?.status === "open" && finalizeLetter(), S: () => setStatus("sent"),
+    O: () => cur && setStatus(cur.status === "sent" ? "final" : "open"),
     o: () => $("#bLink").click(), p: () => togglePanel("preview"), m: () => setLive(!live), r: () => refresh().then(() => msg(t("list_reloaded"))),
     "/": openSearch, z: () => toggleMax(activePanel), d: () => showDiff(), ",": openSettings, v: openVersions, n: openNewApp,
   };
@@ -1040,7 +1040,7 @@ function paletteItems() {
     ...(typeof pitems !== "undefined" ? pitems : []).map(i => ({g: t("tab_pipe"), label: `${i.company} · ${t("ph_" + i.phase)}`, key: "", run: () => { setView("pipeline"); openDossier(i.path); }})),
     ...items.map(i => ({g: t("pal_letters"), label: `${i.company} · ${i.title || i.file}`, key: t("st_" + i.status), run: () => { setView("letters"); filter = ""; search.value = ""; sel = Math.max(0, ordered().indexOf(i)); renderList(); open(i.path).catch(() => {}); }})),
     act(t("final"), "F", () => finalizeLetter()), act(t("mark_final"), "", () => setStatus("final")), act(t("refinal"), "", () => finalizeLetter()),
-    act(t("cl"), "", () => openFile(cur?.files?.cl_pdf)), act(t("cv"), "", () => openFile(cur?.files?.cv_pdf)), act(t("sent"), "S", () => setStatus("abgeschickt")), act(t("st_offen"), "O", () => setStatus("offen")),
+    act(t("cl"), "", () => openFile(cur?.files?.cl_pdf)), act(t("cv"), "", () => openFile(cur?.files?.cv_pdf)), act(t("sent"), "S", () => setStatus("sent")), act(t("st_open"), "O", () => setStatus("open")),
     act(t("am_btn"), "", () => cur && startAppMail(cur.path)),
     act(t("new_app"), "n", openNewApp), act(t("versions"), "v", openVersions), act(t("archive"), "", () => toggleArchiveLetter()), act(t("archive_show_title"), "", () => setShowArchive(!showArchive)),
     act(t("apply"), "A", applyFeedback), act(t("diff_title"), "d", () => showDiff()), act(t("preview"), "p", () => togglePanel("preview")),
@@ -1129,7 +1129,7 @@ function renderCards() {
     c.className = "card" + (isHidden ? " hidden" : "") + (gone ? " gone" : "");
     const dr = jdrafts[s.link];
     c.innerHTML = `<div class="top"><span class="note ${s.note}">${s.note}</span>${s.score ? `<span class="score" title="${t("j_score")}">${s.score}<small>/10</small></span>` : ""}<div><div class="firm">${esc(s.company || "?")}</div><div class="ttl">${esc(s.title)}</div><div class="place">${esc(s.place)}</div></div>` +
-      (gone ? `<span class="tag gone" title="${esc(`${s.check.grund} (${s.check.geprueft})`)}">${t("j_gone")}</span>` : "") +
+      (gone ? `<span class="tag gone" title="${esc(`${s.check.reason} (${s.check.checked})`)}">${t("j_gone")}</span>` : "") +
       (s.applied ? `<span class="tag applied">${t("j_applied")}</span>` : s.new ? `<span class="tag new">${t("j_new")}</span>` : "") + `</div>` +
       (s.workload ? `<p><b>${t("j_workload")}</b>${esc(s.workload)}</p>` : "") +
       (s.pros ? `<p><b>${t("j_pros")}</b>${esc(s.pros)}</p>` : "") + (s.gaps ? `<p><b>${t("j_gaps")}</b>${esc(s.gaps)}</p>` : "") +
@@ -1182,33 +1182,33 @@ $("#bJResults").onclick = () => setPane("results"); $("#bJConfig").onclick = () 
 // ---------- Job search: settings ----------
 const lines = v => v.split("\n").map(x => x.trim()).filter(Boolean);
 async function loadConfig() { jcfg = await api("/api/search/config"); renderConfig(); loadRefs(); }
-function renderConfig() {  // the keys of jcfg (felder, orte, umkreis_km, ...) are the stored format of suche.json
+function renderConfig() {  // the keys of jcfg (fields, places, radius_km, ...) are those of search.json
   const c = jcfg; if (!c) return;
   const f = $("#jfields"); f.innerHTML = "";
-  c.felder.forEach((fe, i) => {
+  c.fields.forEach((fe, i) => {
     const d = document.createElement("div"); d.className = "jfield";
-    d.innerHTML = `<input type="checkbox" class="on" ${fe.an ? "checked" : ""} title="${t("j_field_on")}"><input class="name" value="${esc(fe.name)}" placeholder="${t("j_field_name")}"><textarea class="terms" placeholder="${t("j_terms")}">${esc(fe.begriffe.join("\n"))}</textarea><button type="button" class="rm">${t("j_remove")}</button>`;
-    d.querySelector(".rm").onclick = () => { c.felder.splice(i, 1); renderConfig(); };
+    d.innerHTML = `<input type="checkbox" class="on" ${fe.on ? "checked" : ""} title="${t("j_field_on")}"><input class="name" value="${esc(fe.name)}" placeholder="${t("j_field_name")}"><textarea class="terms" placeholder="${t("j_terms")}">${esc(fe.terms.join("\n"))}</textarea><button type="button" class="rm">${t("j_remove")}</button>`;
+    d.querySelector(".rm").onclick = () => { c.fields.splice(i, 1); renderConfig(); };
     f.append(d);
   });
-  $("#jPlaces").value = c.orte.join("\n"); $("#jLiPlaces").value = (c.linkedin_orte || []).join("\n"); $("#jExcl").value = c.ausschluss.join("\n"); $("#jRadius").value = c.umkreis_km; $("#jFresh").value = c.frische_tage;
-  $("#jTargetMin").value = c.ziel_min; $("#jTargetMax").value = c.ziel_max; $("#jMaxDetails").value = c.max_details; $("#jRemote").checked = !!c.remote;
-  $("#jQJobs").checked = !!c.quellen.jobs_ch; $("#jQLi").checked = !!c.quellen.linkedin; $("#jScale").value = c.raster;
-  $("#jCompanies").value = (c.firmen || []).join("\n"); $("#jAuto").checked = !!c.automatisch; $("#jAutoHour").value = c.automatisch_stunde ?? 8;
+  $("#jPlaces").value = c.places.join("\n"); $("#jLiPlaces").value = (c.linkedin_places || []).join("\n"); $("#jExcl").value = c.exclude.join("\n"); $("#jRadius").value = c.radius_km; $("#jFresh").value = c.max_age_days;
+  $("#jTargetMin").value = c.target_min; $("#jTargetMax").value = c.target_max; $("#jMaxDetails").value = c.max_details; $("#jRemote").checked = !!c.remote;
+  $("#jQJobs").checked = !!c.sources.jobs_ch; $("#jQLi").checked = !!c.sources.linkedin; $("#jScale").value = c.scale;
+  $("#jCompanies").value = (c.companies || []).join("\n"); $("#jAuto").checked = !!c.auto; $("#jAutoHour").value = c.auto_hour ?? 8;
   const sel = $("#jProvider"); sel.innerHTML = `<option value="">(${t("p_tasks")}: ${t("t_rate")})</option>` + (S.providers || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
-  sel.value = c.anbieter || "";
+  sel.value = c.provider || "";
 }
 function collectConfig() {
   const c = jcfg;
-  c.felder = $$("#jfields .jfield").map(d => ({name: d.querySelector(".name").value.trim(), begriffe: lines(d.querySelector(".terms").value), an: d.querySelector(".on").checked})).filter(x => x.name);
-  c.orte = lines($("#jPlaces").value); c.linkedin_orte = lines($("#jLiPlaces").value); c.ausschluss = lines($("#jExcl").value);
-  c.umkreis_km = +$("#jRadius").value || 60; c.frische_tage = +$("#jFresh").value || 30; c.ziel_min = +$("#jTargetMin").value || 15; c.ziel_max = +$("#jTargetMax").value || 25;
-  c.max_details = +$("#jMaxDetails").value || 60; c.remote = $("#jRemote").checked; c.quellen = {jobs_ch: $("#jQJobs").checked, linkedin: $("#jQLi").checked};
-  c.raster = $("#jScale").value; c.anbieter = $("#jProvider").value;
-  c.firmen = lines($("#jCompanies").value); c.automatisch = $("#jAuto").checked; c.automatisch_stunde = Math.min(23, Math.max(0, +$("#jAutoHour").value || 0));
+  c.fields = $$("#jfields .jfield").map(d => ({name: d.querySelector(".name").value.trim(), terms: lines(d.querySelector(".terms").value), on: d.querySelector(".on").checked})).filter(x => x.name);
+  c.places = lines($("#jPlaces").value); c.linkedin_places = lines($("#jLiPlaces").value); c.exclude = lines($("#jExcl").value);
+  c.radius_km = +$("#jRadius").value || 60; c.max_age_days = +$("#jFresh").value || 30; c.target_min = +$("#jTargetMin").value || 15; c.target_max = +$("#jTargetMax").value || 25;
+  c.max_details = +$("#jMaxDetails").value || 60; c.remote = $("#jRemote").checked; c.sources = {jobs_ch: $("#jQJobs").checked, linkedin: $("#jQLi").checked};
+  c.scale = $("#jScale").value; c.provider = $("#jProvider").value;
+  c.companies = lines($("#jCompanies").value); c.auto = $("#jAuto").checked; c.auto_hour = Math.min(23, Math.max(0, +$("#jAutoHour").value || 0));
   return c;
 }
-$("#bJAddField").onclick = () => { collectConfig(); jcfg.felder.push({name: "", begriffe: [], an: true}); renderConfig(); };
+$("#bJAddField").onclick = () => { collectConfig(); jcfg.fields.push({name: "", terms: [], on: true}); renderConfig(); };
 $("#bJSave").onclick = async () => {
   try { jcfg = await postJson("/api/search/config", collectConfig()); renderConfig(); $("#jcfgmsg").textContent = t("j_saved") + " " + new Date().toLocaleTimeString(locale()); }
   catch (e) { $("#jcfgmsg").textContent = t("error") + e.message; }
@@ -1313,8 +1313,8 @@ function setShowArchive(v) {
 $("#bArchive").onclick = e => { e.stopPropagation(); setShowArchive(!showArchive); };
 function toggleArchiveLetter(it = cur) {
   if (!it) return;
-  const to = it.status === "archiv" ? "offen" : "archiv";
-  if (to === "archiv" && !showArchive && cur?.path === it.path) { const o = ordered(), i = o.indexOf(it); setStatus(to).then(() => go(Math.min(i, ordered().length - 1))); return; }
+  const to = it.status === "archived" ? "open" : "archived";
+  if (to === "archived" && !showArchive && cur?.path === it.path) { const o = ordered(), i = o.indexOf(it); setStatus(to).then(() => go(Math.min(i, ordered().length - 1))); return; }
   (cur?.path === it.path ? setStatus(to) : setStatusFor(it, to)).catch(e => msg(t("error") + e.message, true));
 }
 $("#bArchiveM").onclick = () => toggleArchiveLetter();

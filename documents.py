@@ -1,11 +1,11 @@
 """Profile documents: certificates, old CVs, earlier applications, diplomas.
 
-Uploaded files live in the data folder under Profil/Dokumente/<category>/. Existing folders can also be
-linked (profile field "dokument_ordner") without copying anything. The text is extracted for the AI
-(PDF via pdftotext, docx/odt via their XML) and cached in Profil/.textcache/, valid as long as size and
-modification time stay the same.
+Uploaded files live in the data folder under profile/documents/<category>/ (Profil/Dokumente/<German name> in the
+German layout, see layout.py). Existing folders can also be linked (profile field "document_folders") without
+copying anything. The text is extracted for the AI (PDF via pdftotext, docx/odt via their XML) and cached in
+profile/.textcache/, valid as long as size and modification time stay the same.
 
-Category names are folder names on disk (data format) and stay as they are.
+Categories are English ids (cvs, certificates, diplomas, letters, other); the folder names come from layout.py.
 """
 import csv
 import hashlib
@@ -18,10 +18,10 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import layout
 import storage
 
-UPLOAD = "Profil/Dokumente"
-CATEGORIES = ("Lebenslaeufe", "Zeugnisse", "Diplome", "Bewerbungsschreiben", "Sonstiges")
+CATEGORIES = tuple(layout.CATEGORIES)
 TEXT_TYPES = {".pdf", ".docx", ".odt", ".txt", ".md", ".zip", ".json"}  # .zip: LinkedIn export, .json: JSON Resume
 IMAGE_TYPES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_SIZE = 30 * 1024 * 1024
@@ -29,18 +29,20 @@ MAX_SIZE = 30 * 1024 * 1024
 
 def folders(root, prof):
     """[(path, category, linked?)]: one upload folder per category plus the linked folders."""
-    out = [(Path(root) / UPLOAD / k, k, False) for k in CATEGORIES]
-    for o in prof.get("dokument_ordner", []):
-        if isinstance(o, dict) and o.get("pfad"):
-            out.append((Path(root) / o["pfad"], o.get("kategorie") or Path(o["pfad"]).name, True))
+    lay = layout.get(root)
+    out = [(lay.documents / lay.categories[k], k, False) for k in CATEGORIES]
+    for o in prof.get("document_folders", []):
+        if isinstance(o, dict) and o.get("path"):
+            out.append((Path(root) / o["path"], o.get("category") or Path(o["path"]).name, True))
     return out
 
 
 def allowed(root, prof, rel):
     """Absolute path of rel, only inside the document folders (or the profile's photo/signature)."""
     p = (Path(root) / rel).resolve()
-    bases = [d.resolve() for d, _, _ in folders(root, prof)] + [(Path(root) / UPLOAD).resolve(), (Path(root) / "Profil" / "Vorlagen").resolve()]
-    extra = {(Path(root) / prof[k]).resolve() for k in ("foto", "unterschrift") if prof.get(k)}
+    lay = layout.get(root)
+    bases = [d.resolve() for d, _, _ in folders(root, prof)] + [lay.documents.resolve(), lay.templates.resolve()]
+    extra = {(Path(root) / prof[k]).resolve() for k in ("photo", "signature") if prof.get(k)}
     if not p.is_file() or not (p in extra or any(p.is_relative_to(b) for b in bases)):
         raise ValueError("Path not allowed")
     return p
@@ -65,7 +67,7 @@ def listing(root, prof):
 def _cache(root, p):
     st = p.stat()
     key = hashlib.sha1(f"{p}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:20]
-    return Path(root) / "Profil" / ".textcache" / f"{key}.txt"
+    return layout.get(root).textcache / f"{key}.txt"
 
 
 def _xml_text(xml):
@@ -133,13 +135,13 @@ def text(root, p):
 
 
 def store(root, category, name, data):
-    """Saves an upload under Profil/Dokumente/<category>/, never overwriting."""
+    """Saves an upload in the folder of the category, never overwriting."""
     if category not in CATEGORIES:
         raise ValueError("Unknown category")
     if len(data) > MAX_SIZE:
         raise ValueError("File too large (30 MB at most)")
     name = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "_", Path(name).name).strip(" .") or "Document"
-    d = Path(root) / UPLOAD / category
+    d = layout.get(root).documents / layout.get(root).categories[category]
     d.mkdir(parents=True, exist_ok=True)
     p, stem, n = d / name, Path(name).stem, 2
     while p.exists():
@@ -151,7 +153,7 @@ def store(root, category, name, data):
 def delete(root, rel):
     """Uploads only; linked folders belong to the user and are never touched."""
     p = (Path(root) / rel).resolve()
-    if not p.is_file() or not p.is_relative_to((Path(root) / UPLOAD).resolve()):
+    if not p.is_file() or not p.is_relative_to(layout.get(root).documents.resolve()):
         raise ValueError("Only uploaded documents can be deleted here")
     p.unlink()
 
@@ -185,19 +187,19 @@ if __name__ == "__main__":  # self-test
     assert text(r, r / "li.zip") == "## Positions\n- Company Name: Acme | Title: Developer | Started On: Jan 2024", text(r, r / "li.zip")
     assert text(r, r / "cv.json") == "basics:\n  name: Zoë\nskills:\n  name: C#\n  keywords:\n    - Unity", text(r, r / "cv.json")
     (r / "Cert").mkdir()
-    (r / "Cert" / "a.txt").write_text("Grade 5.5 in maths")
+    (r / "Cert" / "a.txt").write_text("Grade 5.5 in maths", "utf-8")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("word/document.xml", "<w:document><w:p><w:r><w:t>First &amp; line</w:t></w:r></w:p><w:p><w:t>Second</w:t></w:p></w:document>")
-    prof = {"dokument_ordner": [{"pfad": "Cert", "kategorie": "Zeugnisse"}]}
-    rel = store(r, "Lebenslaeufe", "../../evil CV.docx", buf.getvalue())
-    assert rel == "Profil/Dokumente/Lebenslaeufe/evil CV.docx", rel
-    assert store(r, "Lebenslaeufe", "evil CV.docx", b"x").endswith("evil CV_2.docx")
+    prof = {"document_folders": [{"path": "Cert", "category": "certificates"}]}
+    rel = store(r, "cvs", "../../evil CV.docx", buf.getvalue())
+    assert rel == "profile/documents/cvs/evil CV.docx", rel
+    assert store(r, "cvs", "evil CV.docx", b"x").endswith("evil CV_2.docx")
     entries = listing(r, prof)
     assert {d["name"] for d in entries} == {"a.txt", "evil CV.docx", "evil CV_2.docx"} and any(d["linked"] for d in entries)
     assert text(r, r / rel) == "First & line\nSecond", repr(text(r, r / rel))
-    assert "maths" in collect(r, prof) and "First" in collect(r, prof)
-    for bad in ("../etc/passwd", "Profil/.textcache"):
+    assert "maths" in collect(r, prof) and "First" in collect(r, prof) and "maths" not in collect(r, prof, categories={"cvs"})
+    for bad in ("../etc/passwd", "profile/.textcache"):
         try:
             allowed(r, prof, bad)
             raise AssertionError(bad)
@@ -209,4 +211,8 @@ if __name__ == "__main__":  # self-test
     except ValueError:
         pass
     delete(r, rel)
+    g = Path(tempfile.mkdtemp())  # German layout: the German folder names
+    (g / "Bewerbungen").mkdir()
+    assert store(g, "cvs", "cv.txt", b"x") == "Profil/Dokumente/Lebenslaeufe/cv.txt"
+    assert [d["category"] for d in listing(g, {})] == ["cvs"]
     print("ok")

@@ -78,18 +78,18 @@ def write_atomic(p, text):
     os.replace(tmp, p)
 
 
-def backup(apps, p, label=None):
-    """Copy p to Bewerbungen/_Review/backups/<time>_<company>_<file>; returns the backup path."""
-    d = Path(apps) / "_Review" / "backups"
+def backup(backups, p, label=None):
+    """Copy p to <backups>/<time>_<company>_<file> (backups: layout.backups); returns the backup path."""
+    d = Path(backups)
     d.mkdir(parents=True, exist_ok=True)
     b = d / f"{datetime.now():%Y%m%d_%H%M%S_%f}_{label or Path(p).parent.name + '_' + Path(p).name}"
     shutil.copy2(p, b)
     return b
 
 
-def versions(apps, p):
+def versions(backups, p):
     """Backups of one letter, newest first: [{"name", "ts", "size"}]."""
-    d = Path(apps) / "_Review" / "backups"
+    d = Path(backups)
     suffix = f"{Path(p).parent.name}_{Path(p).name}"
     out = []
     for f in d.glob("*.md") if d.is_dir() else []:
@@ -101,11 +101,11 @@ def versions(apps, p):
 
 
 def snapshot(root):
-    """mtime of every file in the data folder (without .git and _Review), to see what an agent changed."""
+    """mtime of every file in the data folder (without .git and the review folder), to see what an agent changed."""
     root = Path(root)
     out = {}
     for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in (".git", "_Review", "__pycache__", ".textcache")]
+        dirs[:] = [d for d in dirs if d not in (".git", "_Review", "_review", "__pycache__", ".textcache")]
         for f in files:
             p = Path(dirpath) / f
             try:
@@ -121,10 +121,10 @@ def changed_since(root, before, allowed=()):
     return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k) and k not in allowed)
 
 
-def version_text(apps, p, name):
-    if name not in {v["name"] for v in versions(apps, p)}:
+def version_text(backups, p, name):
+    if name not in {v["name"] for v in versions(backups, p)}:
         raise ValueError("Unknown version")
-    return (Path(apps) / "_Review" / "backups" / name).read_text("utf-8")
+    return (Path(backups) / name).read_text("utf-8")
 
 
 if __name__ == "__main__":  # self-test in a temp folder
@@ -132,23 +132,24 @@ if __name__ == "__main__":  # self-test in a temp folder
     tmp = Path(tempfile.mkdtemp())
     os.environ["APPLICATION_BOARD_CONFIG"] = str(tmp / "cfg")
     assert config_dir() == tmp / "cfg" and config_dir().is_dir()
-    letter = tmp / "Bewerbungen" / "Firma AG" / "Bewerbungsschreiben_X.md"
+    letter = tmp / "applications" / "Firma AG" / "letter_X.md"
     letter.parent.mkdir(parents=True)
+    bk = tmp / "applications" / "_review" / "backups"
     write_atomic(letter, "one")
-    b = backup(tmp / "Bewerbungen", letter)
+    b = backup(bk, letter)
     write_atomic(letter, "two")
-    assert letter.read_text() == "two" and b.read_text() == "one" and not list(letter.parent.glob(".*tmp"))
-    v = versions(tmp / "Bewerbungen", letter)
-    assert len(v) == 1 and version_text(tmp / "Bewerbungen", letter, v[0]["name"]) == "one"
+    assert letter.read_text("utf-8") == "two" and b.read_text("utf-8") == "one" and not list(letter.parent.glob(".*tmp"))
+    v = versions(bk, letter)
+    assert len(v) == 1 and version_text(bk, letter, v[0]["name"]) == "one"
     try:
-        version_text(tmp / "Bewerbungen", letter, "../../x.md")
+        version_text(bk, letter, "../../x.md")
         raise AssertionError("the name should have been rejected")
     except ValueError:
         pass
     snap = snapshot(tmp)
-    (tmp / "Bewerbungen" / "other.md").write_text("x")
+    (tmp / "applications" / "other.md").write_text("x", "utf-8")
     write_atomic(letter, "three")
-    assert changed_since(tmp, snap, {"Bewerbungen/Firma AG/Bewerbungsschreiben_X.md"}) == ["Bewerbungen/other.md"]
+    assert changed_since(tmp, snap, {"applications/Firma AG/letter_X.md"}) == ["applications/other.md"]
     os.environ["BEWERBUNGS_ROOT"] = "/old"  # variables of the old name still work, the new one wins
     assert env("ROOT") == "/old"
     os.environ["APPLICATION_BOARD_ROOT"] = "/new"

@@ -1,9 +1,9 @@
 // ---------- Pipeline: everything after sending (phase board, dossier per application, agenda) ----------
 // Uses the helpers from app.js ($, $$, t, api, postJson, msg, esc, md, setView, open, items).
-// Phase ids and event types ("Mail rein", "Termin", ...) are the stored values of review.json and Verlauf_*.md.
-const PHASES = ["abgeschickt", "keine_antwort", "antwort", "gespraech", "angebot", "absage"];  // order = progress, as in pipeline.py
-const TYPES = ["Mail rein", "Mail raus", "Termin", "Frist", "Notiz", "Status"];
-const DATE_TYPES = ["Termin", "Frist"];
+// Phase ids and event types ("sent", "mail_in", "appointment", ...) are English ids in the API; the server writes them in the format of the data folder.
+const PHASES = ["sent", "no_reply", "replied", "interview", "offer", "rejected"];  // order = progress, as in pipeline.py
+const TYPES = ["mail_in", "mail_out", "appointment", "deadline", "note", "status"];
+const DATE_TYPES = ["appointment", "deadline"];
 const STALE_DAYS = 14;  // this long without activity, then a hint to follow up
 let pitems = [], dossier = null, pview = "next", nextLetters = [], latestRun = null, mailRetry = 0;
 const prepRunning = new Set();
@@ -28,8 +28,8 @@ async function checkPosting(path) {
   try { r = await postJson("/api/posting/check", {path}); } catch (e) { msg(t("error") + e.message, true); r = null; }
   if (r) {
     for (const i of [...pitems, ...(typeof items !== "undefined" ? items : [])]) if (i.path === path) i.check = r;
-    if (r.status === "unknown") msg(t("pc_unknown") + (r.grund ? ` (${r.grund})` : ""), true);
-    else msg(t(r.status === "gone" ? "pc_gone" : "pc_open") + (r.grund ? ` (${r.grund})` : ""), r.status === "gone");
+    if (r.status === "unknown") msg(t("pc_unknown") + (r.reason ? ` (${r.reason})` : ""), true);
+    else msg(t(r.status === "gone" ? "pc_gone" : "pc_open") + (r.reason ? ` (${r.reason})` : ""), r.status === "gone");
   }
   if (dossier?.path === path) renderDossier();
   if (typeof cur !== "undefined" && cur?.path === path) header();
@@ -61,7 +61,7 @@ function pChips(it) {
   return (it.score ? `<i class="score ${it.note || ""}">${it.score}/10</i>` : "") +
     (it.mails?.length ? `<i class="run" title="${t("mm_chip")}">✉ ${it.mails.length}${mailPhase(it) ? " · " + t("ph_" + mailPhase(it)) + "?" : ""}</i>` : "") +
     (it.next ? `<i class="run" title="${esc(it.next.title)}">${t(typeKey(it.next.type))} ${shortDate(it.next.date)}${it.next.time ? " " + it.next.time : ""}</i>` : "") +
-    (stale >= STALE_DAYS && ["abgeschickt", "antwort"].includes(it.phase) ? `<i class="fb" title="${t("p_stale_hint")}">${stale} ${t("p_stale")}</i>` : "");
+    (stale >= STALE_DAYS && ["sent", "replied"].includes(it.phase) ? `<i class="fb" title="${t("p_stale_hint")}">${stale} ${t("p_stale")}</i>` : "");
 }
 
 // the furthest phase the new mails of an application suggest, when it is further than the current one
@@ -101,7 +101,7 @@ function renderAgenda() {
   const el = $("#pagenda"), today = todayIso(), all = allDates();
   const upcoming = all.filter(e => e.date >= today), past = all.filter(e => e.date < today).reverse();
   const row = e => `<div class="arow${e.date === today ? " today" : ""}" data-path="${esc(e.path)}"><span class="when">${fmtDate(e.date, e.time)}</span>` +
-    `<span class="type ${e.type === "Frist" ? "deadline" : ""}">${t(typeKey(e.type))}</span><b>${esc(e.company)}</b><span>${esc(e.title)}</span></div>`;
+    `<span class="type ${e.type === "deadline" ? "deadline" : ""}">${t(typeKey(e.type))}</span><b>${esc(e.company)}</b><span>${esc(e.title)}</span></div>`;
   el.innerHTML = `<h3>${t("p_upcoming")}</h3>` + (upcoming.map(row).join("") || `<p class="muted">${t("p_no_dates")}</p>`) +
     (past.length ? `<details><summary>${t("p_past")} (${past.length})</summary>${past.map(row).join("")}</details>` : "");
   for (const r of el.querySelectorAll(".arow")) r.onclick = () => openDossier(r.dataset.path);
@@ -114,7 +114,7 @@ function renderNext() {
   const row = (attr, when, type, company, text, btn = "") => `<div class="arow" ${attr}><span class="when">${when}</span><span class="type">${type}</span>` +
     `<b>${esc(company)}</b><span>${esc(text || "")}${btn}</span></div>`;
   const dp = p => `data-path="${esc(p)}"`, dl = p => `data-letter="${esc(p)}"`;
-  const follow = pitems.filter(i => ["abgeschickt", "antwort"].includes(i.phase) && !i.next && daysSince(i.last) >= STALE_DAYS);
+  const follow = pitems.filter(i => ["sent", "replied"].includes(i.phase) && !i.next && daysSince(i.last) >= STALE_DAYS);
   const groups = [
     [t("nx_mails"), pitems.filter(i => i.mails?.length).map(i => row(dp(i.path), `✉ ${i.mails.length}`, mailPhase(i) ? t("ph_" + mailPhase(i)) + "?" : t("mm_chip"), i.company, i.mails[0].subject))],
     [t("nx_jobs"), latestRun ? [`<div class="arow" data-run="${esc(latestRun.name)}"><span class="when">${fmtDate(latestRun.name.replace("Stellensuche_", "").slice(0, 10))}</span>` +
@@ -124,7 +124,7 @@ function renderNext() {
       ` <button class="nxfu" ${followRunning.has(i.path) ? "disabled" : ""}>${t("fu_btn")}</button>`))],
     [t("nx_final"), letters.filter(i => i.status === "final").map(i => row(dl(i.path), i.since ? fmtDate(i.since) : "", t("st_final"), i.company, i.title,
       ` <button class="nxam" ${appMailRunning.has(i.path) ? "disabled" : ""}>${t("am_btn")}</button>`))],
-    [t("nx_feedback"), letters.filter(i => i.status === "offen" && (i.feedback || "").trim()).map(i => row(dl(i.path), "", t("st_offen"), i.company, i.feedback.split("\n")[0].slice(0, 120)))],
+    [t("nx_feedback"), letters.filter(i => i.status === "open" && (i.feedback || "").trim()).map(i => row(dl(i.path), "", t("st_open"), i.company, i.feedback.split("\n")[0].slice(0, 120)))],
   ].filter(([, rows]) => rows.length);
   el.innerHTML = groups.map(([h, rows]) => `<h3>${h} (${rows.length})</h3>${rows.join("")}`).join("") || `<p class="muted">${t("nx_none")}</p>`;
   for (const r of el.querySelectorAll(".arow")) r.onclick = () => {
@@ -188,7 +188,7 @@ const sortEvents = evs => evs.sort((a, b) => (b.date + b.time).localeCompare(a.d
 function renderDossier() {
   const {item: it, d} = dossier, f = it.files || {};
   const link = /^https?:\/\//.test(it.link || "") ? it.link : "";
-  const ev = d.events.map((e, i) => `<div class="ev ${e.type === "Status" ? "status" : ""}"><div class="evh"><span class="when">${fmtDate(e.date, e.time)}</span>` +
+  const ev = d.events.map((e, i) => `<div class="ev ${e.type === "status" ? "status" : ""}"><div class="evh"><span class="when">${fmtDate(e.date, e.time)}</span>` +
     `<span class="type t-${e.type.replace(" ", "-")}">${t(typeKey(e.type))}</span><b>${esc(e.title)}</b><button class="del" data-i="${i}" title="${t("pa_delete")}"><svg><use href="#i-close"/></svg></button></div>` +
     (e.text ? (e.text.length > 400 ? `<details><summary>${esc(e.text.slice(0, 160))} …</summary><pre>${esc(e.text)}</pre></details>` : `<pre>${esc(e.text)}</pre>`) : "") + `</div>`).join("");
   const sec = (key, label, extra = "") => `<section class="asec${fold(key)}" data-key="${key}" data-fold="${key}"><div class="asech"><h3>${label}</h3>${extra}<button class="edit">${dossier.edit[key] ? t("p_done") : t("pa_edit")}</button></div>` +
@@ -202,13 +202,13 @@ function renderDossier() {
     `<button id="aFollow" ${followRunning.has(dossier.path) ? "disabled" : ""}>${followRunning.has(dossier.path) ? t("fu_running") : t("fu_btn")}</button><button id="aArchive">${t("archive")}</button></div>` +
     (it.mails?.length ? `<section class="asec${fold("mails")}" data-fold="mails"><div class="asech"><h3>${t("mm_title")}</h3><span class="muted">${it.mails.length}</span></div>` +
       it.mails.map((r, i) => `<div class="tbrow"><span class="when">${fmtDate(r.date, r.time)}</span><div><b>${esc(r.subject || "")}</b>` +
-        `<small>${esc(r.from)} · ${esc(r.folder)}${r.phase && r.phase !== "antwort" ? " · " + t("ph_" + r.phase) : ""}</small></div><button data-mm="${i}">${t("pa_add")}</button></div>`).join("") + `</section>` : "") +
+        `<small>${esc(r.from)} · ${esc(r.folder)}${r.phase && r.phase !== "replied" ? " · " + t("ph_" + r.phase) : ""}</small></div><button data-mm="${i}">${t("pa_add")}</button></div>`).join("") + `</section>` : "") +
     `<section class="asec${fold("new")}" data-fold="new"><div class="asech"><h3>${t("p_new")}</h3><select id="aSource">${SOURCES.map(q => `<option value="${q}" ${q === source ? "selected" : ""}>${t("q_" + q)}</option>`).join("")}</select></div>` +
     `<div id="qTb" ${source !== "tb" ? "hidden" : ""}><div class="tbbar"><input id="tbQ" type="search" value="${esc(dossier.tb.q)}" placeholder="${t("tb_ph")}" autocomplete="off">` +
     `<button id="tbCompany" type="button" title="${t("tb_company")}">${esc(shortCompany(it.company))}</button></div><div class="muted tbstate" id="tbState"></div><div id="tbList"></div></div>` +
     `<label id="qEml" class="dropzone" ${source !== "eml" ? "hidden" : ""}>${t("q_eml_drop")}<input type="file" accept=".eml,message/rfc822" hidden></label>` +
     `<form id="aForm" class="aform" ${source !== "manual" ? "hidden" : ""}>` +
-    `<select name="type">${TYPES.filter(x => x !== "Status").map(x => `<option value="${x}">${t(typeKey(x))}</option>`).join("")}</select>` +
+    `<select name="type">${TYPES.filter(x => x !== "status").map(x => `<option value="${x}">${t(typeKey(x))}</option>`).join("")}</select>` +
     `<input type="date" name="date" value="${todayIso()}" required><input type="time" name="time"><input name="title" placeholder="${t("p_title_ph")}">` +
     `<textarea name="text" rows="4" placeholder="${t("p_text_ph")}"></textarea>` +
     `<div class="arow2"><button class="primary">${t("pa_add")}</button></div></form></section>` +
@@ -223,7 +223,7 @@ function renderDossier() {
   $("#aFollow").onclick = () => startFollowUp(dossier.path);
   $("#aArchive").onclick = async () => {
     const path = dossier.path;
-    try { await postJson("/api/letter", {path, status: "archiv"}); } catch (e) { msg(t("error") + e.message, true); return; }
+    try { await postJson("/api/letter", {path, status: "archived"}); } catch (e) { msg(t("error") + e.message, true); return; }
     msg(`${it.company}: ${t("st_archiv")}`); closeDossier(); await loadPipe(); refresh().catch(() => {});
   };
   $("#aIcs").onclick = () => icsDownload(dossier.path);
@@ -396,7 +396,7 @@ function showFollowUp(path, j, application = false) {
   $("#fuCopy").onclick = () => navigator.clipboard.writeText(`${$("#fuSubject").value}\n\n${$("#fuBody").value}`).then(() => msg(t("copied")), e => msg(t("error") + e.message, true));
   $("#fuNote").onclick = async () => {
     if (dossier?.path !== path) await openDossier(path);
-    dossier.d.events.unshift({date: todayIso(), time: "", type: "Notiz", title: $("#fuSubject").value || t("fu_title"), text: $("#fuBody").value});
+    dossier.d.events.unshift({date: todayIso(), time: "", type: "note", title: $("#fuSubject").value || t("fu_title"), text: $("#fuBody").value});
     sortEvents(dossier.d.events);
     if (await saveDossier(true)) { msg(t("fu_saved")); renderDossier(); $("#followup").classList.remove("on"); }
   };
@@ -407,8 +407,8 @@ function showFollowUp(path, j, application = false) {
 function renderStats() {
   const el = $("#pstats"), all = pitems, n = all.length;
   if (!n) { el.innerHTML = `<p class="muted">${t("st_none")}</p>`; return; }
-  const replied = all.filter(i => !["abgeschickt", "keine_antwort"].includes(i.phase) || i.first_reply), interview = all.filter(i => ["gespraech", "angebot"].includes(i.phase));
-  const offer = all.filter(i => i.phase === "angebot"), rejected = all.filter(i => i.phase === "absage");
+  const replied = all.filter(i => !["sent", "no_reply"].includes(i.phase) || i.first_reply), interview = all.filter(i => ["interview", "offer"].includes(i.phase));
+  const offer = all.filter(i => i.phase === "offer"), rejected = all.filter(i => i.phase === "rejected");
   const days = all.filter(i => i.first_reply && i.since).map(i => daysSince(i.since) - daysSince(i.first_reply)).filter(d => d >= 0).sort((a, b) => a - b);
   const median = days.length ? days[Math.floor(days.length / 2)] : null;
   const pct = k => Math.round(k / n * 100) + " %";

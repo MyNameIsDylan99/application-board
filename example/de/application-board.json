@@ -1,0 +1,14 @@
+{
+  "name": "Vorname Nachname",
+  "town": "Bern",
+  "email": "vorname.nachname@example.com",
+  "file_names": {
+    "cover_letter": "CL_{name}_{company}_{mmyy}",
+    "cv": "CV_{name}_{company}_{mmyy}"
+  },
+  "rules": [
+    "Keine erfundenen Fakten, nur was im Profil oder in früheren Briefen steht.",
+    "Brieftext rund 300 bis 350 Wörter."
+  ],
+  "swiss_ss": false
+}

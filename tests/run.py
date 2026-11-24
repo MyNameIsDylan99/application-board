@@ -122,15 +122,15 @@ def demo_folder(tmp):
     data = tmp / "data"
     shutil.copytree(APP / "example" / "de", data)
     for folder, text in (("Muster AG", LETTER_DE), ("Example Ltd", LETTER_EN)):
-        (data / "Bewerbungen" / folder).mkdir(parents=True, exist_ok=True)
-        (data / "Bewerbungen" / folder / f"Bewerbungsschreiben_{folder.split()[0]}.md").write_text(text, "utf-8")
-    (data / "Bewerbungen" / "_Stellensuche").mkdir()
-    (data / "Bewerbungen" / "_Stellensuche" / "Stellensuche_2026-01-02.md").write_text(RUN, "utf-8")
-    (data / "Profil" / "Dokumente" / "Sonstiges").mkdir(parents=True)
-    (data / "Profil" / "Dokumente" / "Sonstiges" / "evil.html").write_text("<script>alert(1)</script>")
-    prof = json.loads((data / "bewerbungs-board.json").read_text("utf-8"))
-    prof.update(name="Vorname Nachname", email="vorname@example.com", regelcheck={"woerter_min": 300, "woerter_max": 350, "zeichen": ["ß"]})
-    (data / "bewerbungs-board.json").write_text(json.dumps(prof, ensure_ascii=False, indent=2), "utf-8")
+        (data / "applications" / folder).mkdir(parents=True, exist_ok=True)
+        (data / "applications" / folder / f"letter_{folder.split()[0]}.md").write_text(text, "utf-8")
+    (data / "applications" / "_jobsearch").mkdir()
+    (data / "applications" / "_jobsearch" / "jobsearch_2026-01-02.md").write_text(RUN, "utf-8")
+    (data / "profile" / "documents" / "other").mkdir(parents=True)
+    (data / "profile" / "documents" / "other" / "evil.html").write_text("<script>alert(1)</script>", "utf-8")
+    prof = json.loads((data / "application-board.json").read_text("utf-8"))
+    prof.update(name="Vorname Nachname", email="vorname@example.com", rule_check={"words_min": 300, "words_max": 350, "chars": ["ß"]})
+    (data / "application-board.json").write_text(json.dumps(prof, ensure_ascii=False, indent=2), "utf-8")
     return data
 
 
@@ -195,14 +195,14 @@ def api_tests(tmp):
 
 
 def run_api(a, data, tmp):
-    de, en = "Bewerbungen/Muster AG/Bewerbungsschreiben_Muster.md", "Bewerbungen/Example Ltd/Bewerbungsschreiben_Example.md"
+    de, en = "applications/Muster AG/letter_Muster.md", "applications/Example Ltd/letter_Example.md"
     letters = {i["path"]: i for i in a.call("/api/letters")}
     check("letters listed with language and score", letters.get(de, {}).get("lang") == "de" and letters.get(en, {}).get("lang") == "en"
           and letters[de].get("score") == 9, letters)
     # security
     status, headers, _ = a.call("/", raw=True)
     check("CSP and nosniff on the page", "script-src 'self'" in headers.get("Content-Security-Policy", "") and headers.get("X-Content-Type-Options") == "nosniff", headers)
-    status, headers, _ = a.call("/doc?path=" + urllib.parse.quote("Profil/Dokumente/Sonstiges/evil.html"), raw=True)
+    status, headers, _ = a.call("/doc?path=" + urllib.parse.quote("profile/documents/other/evil.html"), raw=True)
     check("uploaded HTML is a download, not a page", status == 200 and headers.get("Content-Disposition", "").startswith("attachment"), headers)
     check("no path traversal out of vendor/", a.call("/vendor/../server.py", raw=True)[0] == 404)
     check("POST without header refused", a.call("/api/letter", {"path": de}, headers={"X-Bewerben": "0"}).get("_status") == 403)
@@ -243,10 +243,10 @@ def run_api(a, data, tmp):
     usage = a.call("/api/usage")
     check("usage recorded per task", any(u["task"] == "feedback" and u["n"] >= 2 for u in usage) and any(u["task"] == "facts" for u in usage), usage)
     # rule check comes from the profile
-    check("rule check from the profile", a.call("/api/settings")["rulecheck"]["woerter_min"] == 300)
+    check("rule check from the profile", a.call("/api/settings")["rulecheck"]["words_min"] == 300)
     # status, pipeline, follow-up
-    a.call("/api/letter", {"path": de, "status": "abgeschickt"})
-    a.call("/api/letter", {"path": de, "phase": "gespraech"})
+    a.call("/api/letter", {"path": de, "status": "sent"})
+    a.call("/api/letter", {"path": de, "phase": "interview"})
     log = a.call("/api/log?path=" + urllib.parse.quote(de))
     check("status events in the log", [e["title"] for e in log["events"]] == ["Gespräch", "Abgeschickt"], log["events"])
     pipe = a.call("/api/pipeline")
@@ -254,7 +254,7 @@ def run_api(a, data, tmp):
     a.call("/api/followup", {"path": de})
     f = a.wait("followup", de)
     check("follow-up drafted with contact", f["state"] == "done" and f.get("to") == "anna.beispiel@example.com" and f.get("subject") == "Nachfrage", f)
-    log["events"].insert(0, {"date": "2099-01-05", "time": "09:30", "type": "Termin", "title": "Gespräch", "text": ""})
+    log["events"].insert(0, {"date": "2099-01-05", "time": "09:30", "type": "appointment", "title": "Gespräch", "text": ""})
     a.call("/api/log", {"path": de, "mtime": log["mtime"], **{k: log[k] for k in ("events", "preparation", "notes")}})
     status, headers, cal = a.call("/calendar.ics", raw=True)
     check("calendar to subscribe", status == 200 and headers.get("Content-Type", "").startswith("text/calendar") and b"DTSTART:20990105T093000" in cal
@@ -265,8 +265,8 @@ def run_api(a, data, tmp):
     check("compose refuses a bad recipient", a.call("/api/compose", {"path": de, "to": "x@y.ch,evil@z.ch"}).get("_status") == 400)
     a.call("/api/prepare", {"path": de})
     check("interview preparation", a.wait("prepare", de)["state"] == "done" and "### About" in a.call("/api/log?path=" + urllib.parse.quote(de))["preparation"])
-    a.call("/api/letter", {"path": de, "status": "archiv"})
-    check("archive keeps the letter, leaves the pipeline", a.call("/api/pipeline") == [] and any(i["status"] == "archiv" for i in a.call("/api/letters")))
+    a.call("/api/letter", {"path": de, "status": "archived"})
+    check("archive keeps the letter, leaves the pipeline", a.call("/api/pipeline") == [] and any(i["status"] == "archived" for i in a.call("/api/letters")))
     # learnings, draft from text, job search parse
     a.call("/api/learnings", {"all": True})
     lj = a.wait("learnings", "")
@@ -280,31 +280,31 @@ def run_api(a, data, tmp):
     import io
     import zipfile
     names = zipfile.ZipFile(io.BytesIO(z)).namelist() if status == 200 else []
-    check("data folder exported as zip", any(n.endswith("Bewerbungsschreiben_Muster.md") for n in names) and not any("/.git/" in n for n in names), names[:5])
+    check("data folder exported as zip", any(n.endswith("letter_Muster.md") for n in names) and not any("/.git/" in n for n in names), names[:5])
     mcp_tests(data)
-    run = a.call("/api/search/run?name=Stellensuche_2026-01-02")
+    run = a.call("/api/search/run?name=jobsearch_2026-01-02")
     check("job search run parsed", run["jobs"][0]["score"] == 9 and run["jobs"][0]["company"] == "Muster AG", run)
     gone = a.base + "/no-such-posting"  # the board itself answers 404: a posting that is gone
-    (data / "Bewerbungen" / "_Stellensuche" / "Stellensuche_2026-01-03.md").write_text(f"# Stellensuche\n\n## A, passt direkt\n\n### Dev bei Weg AG, Ort\n- **Link:** {gone}\n- **Wertung:** 9/10\n", "utf-8")
-    a.call("/api/search/check", {"name": "Stellensuche_2026-01-03"})
-    cj = a.wait("jobcheck", "Stellensuche_2026-01-03")
-    run = a.call("/api/search/run?name=Stellensuche_2026-01-03")
-    (data / "Bewerbungen" / "Weg AG").mkdir()
-    (data / "Bewerbungen" / "Weg AG" / "Bewerbungsschreiben_Weg.md").write_text(f"**Titel:** Dev\n**Link:** [Anzeige]({gone})\n\n# Bewerbungsschreiben\n\nText\n", "utf-8")
-    pc = a.call("/api/posting/check", {"path": "Bewerbungen/Weg AG/Bewerbungsschreiben_Weg.md"})
-    check("posting of one application checked", pc.get("status") == "gone" and pc.get("grund") == "HTTP 404", pc)
+    (data / "applications" / "_jobsearch" / "jobsearch_2026-01-03.md").write_text(f"# Stellensuche\n\n## A, passt direkt\n\n### Dev bei Weg AG, Ort\n- **Link:** {gone}\n- **Wertung:** 9/10\n", "utf-8")
+    a.call("/api/search/check", {"name": "jobsearch_2026-01-03"})
+    cj = a.wait("jobcheck", "jobsearch_2026-01-03")
+    run = a.call("/api/search/run?name=jobsearch_2026-01-03")
+    (data / "applications" / "Weg AG").mkdir()
+    (data / "applications" / "Weg AG" / "letter_Weg.md").write_text(f"**Titel:** Dev\n**Link:** [Anzeige]({gone})\n\n# Bewerbungsschreiben\n\nText\n", "utf-8")
+    pc = a.call("/api/posting/check", {"path": "applications/Weg AG/letter_Weg.md"})
+    check("posting of one application checked", pc.get("status") == "gone" and pc.get("reason") == "HTTP 404", pc)
     check("posting that is gone is marked", cj.get("gone") == 1 and run["jobs"][0]["check"]["status"] == "gone", (cj, run["jobs"]))
     # moved folder keeps its state
-    (data / "Bewerbungen" / "Muster AG").rename(data / "Bewerbungen" / "Muster AG neu")
-    moved = {i["path"]: i for i in a.call("/api/letters")}.get("Bewerbungen/Muster AG neu/Bewerbungsschreiben_Muster.md", {})
-    check("renamed folder keeps status", moved.get("status") == "archiv", moved)
-    check("history follows the rename", len(a.call("/api/rounds?path=" + urllib.parse.quote("Bewerbungen/Muster AG neu/Bewerbungsschreiben_Muster.md"))["rounds"]) >= 2)
+    (data / "applications" / "Muster AG").rename(data / "applications" / "Muster AG neu")
+    moved = {i["path"]: i for i in a.call("/api/letters")}.get("applications/Muster AG neu/letter_Muster.md", {})
+    check("renamed folder keeps status", moved.get("status") == "archived", moved)
+    check("history follows the rename", len(a.call("/api/rounds?path=" + urllib.parse.quote("applications/Muster AG neu/letter_Muster.md"))["rounds"]) >= 2)
     # finalize, only with LibreOffice
     sys.path.insert(0, str(APP))
     import storage
     if storage.tool("soffice"):
-        g = a.call("/api/templates/generate", {"kind": "anschreiben", "layout": "klassisch"})
-        a.call("/api/profile", {"vorlagen": {"anschreiben": g["rel"], "lebenslauf": ""}})
+        g = a.call("/api/templates/generate", {"kind": "cover_letter", "layout": "classic"})
+        a.call("/api/profile", {"templates": {"cover_letter": g["rel"], "cv": ""}})
         a.call("/api/finalize", {"path": en})
         fj = a.wait("finalize", en, 120)
         check("finalized as docx and pdf", fj["state"] == "done" and (data / fj["files"]["cl_pdf"]).is_file(), fj)
@@ -319,6 +319,78 @@ def run_api(a, data, tmp):
                   and Path(fj["files"]["cl_pdf"]).name.replace(" ", "%20") in arg[1], (r, arg))
     else:
         print("  skip finalize (LibreOffice not found)")
+
+
+def start_server(data, tmp, name):
+    """A board on data with its own config folder; returns (Api, process)."""
+    cfg = tmp / f"config-{name}"
+    cfg.mkdir()
+    (cfg / "settings.json").write_text(json.dumps({"root": str(data), "lang": "de"}), "utf-8")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "APPLICATION_BOARD_CONFIG": str(cfg), "HOME": str(tmp / "home")}
+    server = subprocess.Popen([sys.executable, str(APP / "server.py"), str(port)], env=env, stdout=open(tmp / f"server-{name}.log", "w"), stderr=subprocess.STDOUT)
+    a = Api(port)
+    for _ in range(40):
+        try:
+            a.call("/api/settings")
+            break
+        except (OSError, ValueError):
+            time.sleep(0.25)
+    return a, server
+
+
+def legacy_tests(tmp):
+    """A data folder in the German layout of the first versions keeps its names, keys and values on disk."""
+    print("German layout")
+    data = tmp / "legacy"
+    letter = data / "Bewerbungen" / "Muster AG" / "Bewerbungsschreiben_Muster.md"
+    letter.parent.mkdir(parents=True)
+    letter.write_text(LETTER_DE, "utf-8")
+    (data / "bewerbungs-board.json").write_text(json.dumps({"name": "Vorname Nachname", "email": "vorname@example.com", "ort": "Bern",
+                                                            "dateiname": {"anschreiben": "CL_{name}_{firma}_{mmyy}", "lebenslauf": "CV_{name}_{firma}_{mmyy}"},
+                                                            "regelcheck": {"woerter_min": 10, "woerter_max": 0, "zeichen": []}}), "utf-8")
+    (data / "Bewerbungen" / "_Review").mkdir()
+    (data / "Bewerbungen" / "_Review" / "review.json").write_text(json.dumps({"Bewerbungen/Muster AG/Bewerbungsschreiben_Muster.md":
+                                                                             {"status": "offen", "feedback": "kürzer", "seit": "2026-01-01"}}), "utf-8")
+    (data / "Bewerbungen" / "_Stellensuche").mkdir()
+    (data / "Bewerbungen" / "_Stellensuche" / "suche.json").write_text(json.dumps({"orte": ["Bern"], "ausgeblendet": []}), "utf-8")
+    (data / "Bewerbungen" / "_Stellensuche" / "Stellensuche_2026-01-02.md").write_text(RUN, "utf-8")
+    rel = "Bewerbungen/Muster AG/Bewerbungsschreiben_Muster.md"
+    raw = lambda p: json.loads((data / p).read_text("utf-8"))
+    a, server = start_server(data, tmp, "legacy")
+    try:
+        it = {i["path"]: i for i in a.call("/api/letters")}.get(rel, {})
+        check("German layout: letters with English values in the API", (it.get("status"), it.get("since"), it.get("feedback")) == ("open", "2026-01-01", "kürzer"), it)
+        a.call("/api/letter", {"path": rel, "status": "sent"})
+        a.call("/api/letter", {"path": rel, "phase": "interview"})
+        st = raw("Bewerbungen/_Review/review.json")[rel]
+        check("German layout: status written with the German values", (st["status"], st["phase"], "seit" in st, "since" in st) == ("abgeschickt", "gespraech", True, False), st)
+        check("German layout: log next to the letter", (letter.parent / "Verlauf_Muster.md").is_file() and a.call("/api/pipeline")[0]["phase"] == "interview")
+        prof = a.call("/api/profile")["profile"]
+        check("German layout: profile read", prof["town"] == "Bern" and prof["file_names"]["cover_letter"] == "CL_{name}_{company}_{mmyy}"
+              and prof["files"]["profile"] == "Profil/profil.md", prof)
+        a.call("/api/profile", {"phone": "+41 1"})
+        pr = raw("bewerbungs-board.json")
+        check("German layout: profile written with German keys", pr.get("telefon") == "+41 1" and pr.get("ort") == "Bern" and "phone" not in pr, pr)
+        check("German layout: rule check", a.call("/api/settings")["rulecheck"]["words_min"] == 10)
+        cfg = a.call("/api/search/config")
+        a.call("/api/search/config", {"places": cfg["places"] + ["Zug"]})
+        check("German layout: search settings keep their keys", raw("Bewerbungen/_Stellensuche/suche.json").get("orte") == ["Bern", "Zug"])
+        check("German layout: job search run", a.call("/api/search/runs")[0]["name"] == "Stellensuche_2026-01-02"
+              and a.call("/api/search/run?name=Stellensuche_2026-01-02")["jobs"][0]["score"] == 9)
+        g = a.call("/api/letter?path=" + urllib.parse.quote(rel))
+        a.call("/api/letter", {"path": rel, "content": g["content"], "mtime": g["mtime"], "undo": True})
+        line = json.loads((data / "Bewerbungen" / "_Review" / "feedback_log.jsonl").read_text("utf-8").splitlines()[-1])
+        check("German layout: feedback log keeps its keys", (line.get("path"), line.get("firma"), line.get("typ")) == (rel, "Muster AG", "rueckgaengig"), line)
+        check("German layout: rounds in the API", a.call("/api/rounds?path=" + urllib.parse.quote(rel))["rounds"][-1]["kind"] == "undo")
+        a.call("/api/search/hide", {"url": "https://x.example/1", "hidden": True})
+        check("German layout: nothing English created", not (data / "applications").exists() and not (data / "application-board.json").exists()
+              and not (data / "profile").exists(), sorted(p.name for p in data.iterdir()))
+    finally:
+        server.terminate()
+        server.wait(5)
 
 
 def mcp_tests(data):
@@ -359,6 +431,7 @@ if __name__ == "__main__":
     tmp = Path(tempfile.mkdtemp(prefix="application-board-test-"))
     self_tests()
     port, data, cfg, env = api_tests(tmp)
+    legacy_tests(tmp)
     if "--ui" in sys.argv:
         ui_tests(port, env)
     if "--keep" in sys.argv:

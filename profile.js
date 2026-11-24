@@ -1,10 +1,10 @@
 // ---------- Profile: details, documents, profile text, templates ----------
 // Uses the helpers from app.js ($, $$, t, api, postJson, msg, toast, esc, fmtSize, diffLines, MD, S).
-// The keys of the profile (name, ort, dateien, dokument_ordner, vorlagen, ...) are the stored format of bewerbungs-board.json.
-const AI_BUTTON = {profil: "pr_profil_ai", stil: "pr_stil_ai", lebenslauf: "pr_cv_ai"};  // profile files with an AI suggestion
-const TEXT_FIELDS = ["name", "ort", "email", "telefon", "adresse", "foto", "unterschrift"];
-const FILE_KEYS = ["profil", "stil", "suchprofil", "bewertung", "lebenslauf"];
-let prof = null, profLoaded = false, prFile = "profil", prMtime = "", prDirty = false;
+// The API uses the English keys of the profile (name, town, files, document_folders, templates, ...).
+const AI_BUTTON = {profile: "pr_profil_ai", style: "pr_stil_ai", cv: "pr_cv_ai"};  // profile files with an AI suggestion
+const TEXT_FIELDS = ["name", "town", "email", "phone", "address", "photo", "signature"];
+const FILE_KEYS = ["profile", "style", "search_profile", "grading", "cv"];
+let prof = null, profLoaded = false, prFile = "profile", prMtime = "", prDirty = false;
 const prEd = CodeMirror($("#prEditor"), {keyMap: "vim", mode: MD, lineWrapping: true, lineNumbers: true});
 prEd.on("change", () => { if (!prEd.__loading) { prDirty = true; $("#prDirty").hidden = false; } });
 
@@ -23,14 +23,14 @@ async function loadProfile() {
   prof = d.profile; profLoaded = true;
   const f = $("#prForm");
   for (const k of TEXT_FIELDS) f[k].value = prof[k] || "";
-  f.regeln.value = (prof.regeln || []).join("\n");
-  f.ss_statt_sz.checked = !!prof.ss_statt_sz;
-  const rc = prof.regelcheck || {};
-  f.rc_min.value = rc.woerter_min || 0; f.rc_max.value = rc.woerter_max || 0; f.rc_chars.value = (rc.zeichen || []).join("\n");
-  f.dn_anschreiben.value = prof.dateiname.anschreiben; f.dn_lebenslauf.value = prof.dateiname.lebenslauf;
-  for (const k of FILE_KEYS) f["df_" + k].value = prof.dateien[k];
-  f.folders.value = (prof.dokument_ordner || []).map(o => o.kategorie && o.kategorie !== o.pfad.split("/").pop() ? `${o.pfad}: ${o.kategorie}` : o.pfad).join("\n");
-  for (const k of ["foto", "unterschrift"]) imagePreview(k);
+  f.rules.value = (prof.rules || []).join("\n");
+  f.swiss_ss.checked = !!prof.swiss_ss;
+  const rc = prof.rule_check || {};
+  f.rc_min.value = rc.words_min || 0; f.rc_max.value = rc.words_max || 0; f.rc_chars.value = (rc.chars || []).join("\n");
+  f.dn_cover_letter.value = prof.file_names.cover_letter; f.dn_cv.value = prof.file_names.cv;
+  for (const k of FILE_KEYS) f["df_" + k].value = prof.files[k];
+  f.folders.value = (prof.document_folders || []).map(o => o.category && o.category !== o.path.split("/").pop() ? `${o.path}: ${o.category}` : o.path).join("\n");
+  for (const k of ["photo", "signature"]) imagePreview(k);
   for (const [k, v] of Object.entries(d.files)) {
     const opt = $(`#prFileSelect option[value="${k}"]`);
     if (opt) opt.textContent = `${t("pr_f_" + k)} · ${v.path}${v.exists ? "" : " (" + t("pr_new") + ")"}`;
@@ -42,24 +42,24 @@ function imagePreview(k) {
   const v = $("#prForm")[k].value.trim(), img = $(`#pr_${k}_img`);
   img.hidden = !v; if (v) img.src = "/doc?path=" + encodeURIComponent(v) + "&v=" + Date.now();
 }
-$("#prForm").foto.oninput = () => imagePreview("foto");
-$("#prForm").unterschrift.oninput = () => imagePreview("unterschrift");
-for (const k of ["foto", "unterschrift"]) $(`#pr_${k}_file`).onchange = async e => {
+$("#prForm").photo.oninput = () => imagePreview("photo");
+$("#prForm").signature.oninput = () => imagePreview("signature");
+for (const k of ["photo", "signature"]) $(`#pr_${k}_file`).onchange = async e => {
   const file = e.target.files[0]; e.target.value = "";
   if (!file) return;
-  const rel = await upload(file, "Sonstiges");
+  const rel = await upload(file, "other");
   if (rel) { $("#prForm")[k].value = rel; imagePreview(k); }
 };
 
 $("#prForm").onsubmit = async e => {
   e.preventDefault();
   const f = e.target;
-  const body = {regeln: f.regeln.value.split("\n"), ss_statt_sz: f.ss_statt_sz.checked,
-    regelcheck: {woerter_min: +f.rc_min.value || 0, woerter_max: +f.rc_max.value || 0, zeichen: f.rc_chars.value.split("\n").filter(z => z !== "")},
-    dateiname: {anschreiben: f.dn_anschreiben.value, lebenslauf: f.dn_lebenslauf.value},
-    dateien: Object.fromEntries(FILE_KEYS.map(k => [k, f["df_" + k].value])),
-    dokument_ordner: f.folders.value.split("\n").map(z => z.trim()).filter(Boolean).map(z => {
-      const i = z.lastIndexOf(":"); return i > 0 ? {pfad: z.slice(0, i).trim(), kategorie: z.slice(i + 1).trim()} : {pfad: z, kategorie: ""};
+  const body = {rules: f.rules.value.split("\n"), swiss_ss: f.swiss_ss.checked,
+    rule_check: {words_min: +f.rc_min.value || 0, words_max: +f.rc_max.value || 0, chars: f.rc_chars.value.split("\n").filter(z => z !== "")},
+    file_names: {cover_letter: f.dn_cover_letter.value, cv: f.dn_cv.value},
+    files: Object.fromEntries(FILE_KEYS.map(k => [k, f["df_" + k].value])),
+    document_folders: f.folders.value.split("\n").map(z => z.trim()).filter(Boolean).map(z => {
+      const i = z.lastIndexOf(":"); return i > 0 ? {path: z.slice(0, i).trim(), category: z.slice(i + 1).trim()} : {path: z, category: ""};
     })};
   for (const k of TEXT_FIELDS) body[k] = f[k].value;
   try { await postJson("/api/profile", body); msg(t("saved")); prMtime = ""; await loadProfile(); S = await api("/api/settings"); rules(); }
@@ -206,7 +206,7 @@ async function showTemplate(card) {
 for (const card of $$(".tplcard")) {
   const kind = card.dataset.kind;
   card.querySelector(".tplselect").onchange = async e => {
-    try { await postJson("/api/profile", {vorlagen: {...tplData.chosen, [kind]: e.target.value}}); msg(t("saved")); await loadTemplates(); }
+    try { await postJson("/api/profile", {templates: {...tplData.chosen, [kind]: e.target.value}}); msg(t("saved")); await loadTemplates(); }
     catch (err) { msg(t("error") + err.message, true); }
   };
   card.querySelector("input[type=file]").onchange = async e => {
@@ -224,12 +224,12 @@ async function generateTemplate(kind, layout, button) {
 }
 async function templateAdded(kind, r) {
   // a new template that works becomes the active one right away
-  if (r.check.ok) { await postJson("/api/profile", {vorlagen: {...tplData.chosen, [kind]: r.rel}}).catch(() => {}); msg(`${r.rel}: ${t("tpl_activated")}`); }
+  if (r.check.ok) { await postJson("/api/profile", {templates: {...tplData.chosen, [kind]: r.rel}}).catch(() => {}); msg(`${r.rel}: ${t("tpl_activated")}`); }
   else msg(`${r.rel}: ${r.check.points.filter(p => !p[0]).map(p => p[1]).join("; ")}`, true);
   await loadTemplates();
 }
 
-$("#bTplCvContent").onclick = async () => { profileSection("text"); await loadFile("lebenslauf"); };
+$("#bTplCvContent").onclick = async () => { profileSection("text"); await loadFile("cv"); };
 
 // ---------- First setup: create or open a data folder ----------
 let setupMode = "new";
@@ -248,7 +248,7 @@ function showSetup(info) {
   $("#setupName").focus();
 }
 async function setupBrowse(path) {
-  // simple folder picker: click subfolders, folders with Bewerbungen/ are marked
+  // simple folder picker: click subfolders, data folders (applications/ or Bewerbungen/) are marked
   const d = await api("/api/dirs?path=" + encodeURIComponent(path)).catch(e => ($("#setupError").textContent = e.message, null));
   if (!d) return;
   $("#setupPath").value = d.path;
@@ -278,7 +278,7 @@ async function firstSteps() {
     ["documents", docs.length > 0, "fs_documents"],
     // the placeholder text of the example folder (German or English) does not count as a profile
     ["text", profileFile.content.trim().length > 200 && !/Grundlage für alle Briefe\. Die KI nimmt nur Fakten von hier|Basis for all letters\. The AI only takes facts from here/.test(profileFile.content), "fs_profile"],
-    ["templates", !!tpl?.list.some(v => v.kind === "anschreiben" && v.check.ok), "fs_template"],
+    ["templates", !!tpl?.list.some(v => v.kind === "cover_letter" && v.check.ok), "fs_template"],
   ];
   el.hidden = steps.every(s => s[1]);
   el.innerHTML = `<h3>${t("fs_title")}</h3><ol>` + steps.map(([sec, ok, k]) => `<li class="${ok ? "ok" : ""}"><button data-psec="${sec}">${ok ? "✓" : "○"} ${t(k)}</button></li>`).join("") + "</ol>";

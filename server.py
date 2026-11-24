@@ -3,11 +3,11 @@
 
 Start:  python3 server.py [port] [--open]   (then http://127.0.0.1:8765; --open opens the browser)
         Data folder: the one stored in the settings, otherwise APPLICATION_BOARD_ROOT, otherwise the current directory.
-        It must contain a subfolder Bewerbungen/.
+        It must contain a subfolder applications/ (or Bewerbungen/ in the German layout of the first versions, see layout.py).
 
-Status and feedback live in <root>/Bewerbungen/_Review/review.json (stored keys stay German, see STORED),
-text changes go straight into the Bewerbungsschreiben*.md. New letters that git does not know yet or that changed
-land in the column "offen" automatically. Settings (data folder, theme, language, vim, providers, layout) live in
+Status and feedback live in <root>/applications/_review/state.json, text changes go straight into the letter_*.md.
+The code and the API use English keys and values; layout.py translates them for folders of the German layout.
+New letters that git does not know yet or that changed land in the column "open" automatically. Settings (data folder, theme, language, vim, providers, layout) live in
 settings.json in the config folder (see storage.config_dir), keys in secrets.json next to it.
 """
 import base64
@@ -34,6 +34,7 @@ import ai
 import documents
 import finalizing
 import jobsearch
+import layout
 import learnings
 import pipeline
 import storage
@@ -41,15 +42,15 @@ import templates
 import thunderbird
 import userprofile
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 DIR = Path(__file__).resolve().parent
 SETTINGS = storage.config_file("settings.json")
 STATIC = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/i18n.js": "i18n.js", "/boot.js": "boot.js", "/pipeline.js": "pipeline.js",
           "/learnings.js": "learnings.js", "/profile.js": "profile.js", "/icon.svg": "icon.svg"}
 VENDOR = DIR / "vendor"  # CodeMirror, marked, DOMPurify and the fonts, stored locally (no CDN)
 DEFAULT_ROOT = Path(storage.env("ROOT") or Path.cwd())  # app and data live in separate folders
-ROOT = APPS = STATE = None  # set by set_root
-STATUSES = ("offen", "final", "abgeschickt", "archiv")  # stored values in review.json
+ROOT = APPS = LAY = None  # set by set_root; LAY: layout.Layout of the data folder
+STATUSES = ("open", "final", "sent", "archived")
 THEME_RE = re.compile(r"[a-z0-9-]{1,40}")  # the list of themes lives in app.js/app.css, only the format here
 LANGS = ("de", "en")
 TASKS = ("feedback", "rate", "draft", "check", "facts", "prepare", "followup", "learnings", "profile")
@@ -59,13 +60,9 @@ TABS = ("letters", "jobs")
 DEFAULT_PROVIDER = {"id": "claude-code", "name": "Claude Code", "type": "claude-code", "model": "", "base_url": "", "cmd": "", "key_ref": "", "temperature": None, "max_tokens": None}
 DEFAULTS = {"root": str(DEFAULT_ROOT), "theme": "system", "accent": "", "lang": "de", "vim": True, "spellcheck": True, "layout": None, "update_check": False,
             "providers": [dict(DEFAULT_PROVIDER)], "tasks": {t: "claude-code" for t in TASKS}, "tab": "letters"}
-LOCK = threading.Lock()  # review.json and settings.json are written by the handler and by AI jobs
+LOCK = threading.Lock()  # the state file and settings.json are written by the handler and by AI jobs
 JOBS = {}  # "kind:key" -> {"state": "running"|"done"|"error"|"cancelled", "text", ...result, "thread": id}
 SAVE_BACKUP_EVERY = timedelta(minutes=10)  # manual saves keep a version at most this often
-# stored key in review.json -> key in the API
-STORED = {"antwort": "answer", "seit": "since", "dateien": "files", "pruefung": "hints", "finalisiert": "finalized", "vorlagen": "templates"}
-# stored key in feedback_log.jsonl -> key in the API
-ROUND_KEYS = {"firma": "company", "antwort": "answer", "typ": "kind", "anbieter": "provider", "sitzung": "session", "nachgetragen": "backfilled", "runden": "rounds"}
 LETTER_HEAD = re.compile(r"^# (Bewerbungsschreiben|Cover Letter)\s*$", re.M)
 INLINE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"}  # everything else is downloaded, never rendered as a page
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; "
@@ -147,11 +144,11 @@ def language_name():
 def rounds_text(rel, n=8):
     """Memory between the rounds: the last feedback rounds and undo steps for this letter."""
     lines = []
-    for r in [r for r in learnings.read(APPS) if r.get("path") == rel][-n:]:
-        if r.get("typ") == "rueckgaengig":
+    for r in [r for r in learnings.read(ROOT) if r.get("path") == rel][-n:]:
+        if r.get("kind") == "undo":
             lines.append(f"[{r.get('ts', '')[:16]}] The change of the previous round was rejected with undo.")
         else:
-            lines.append(f"[{r.get('ts', '')[:16]}] Feedback: {r.get('feedback') or '(not stored)'}\nAnswer: {r.get('antwort', '')}")
+            lines.append(f"[{r.get('ts', '')[:16]}] Feedback: {r.get('feedback') or '(not stored)'}\nAnswer: {r.get('answer', '')}")
     return "\n\n".join(lines)
 
 
@@ -160,17 +157,6 @@ def memory_text(limit=25000):
     md = memory_dir()
     parts = [f"--- {p.name} ---\n{frontmatter(p.read_text('utf-8'))[1].strip()}" for p in sorted(md.glob("*.md")) if p.name != "MEMORY.md"] if md.is_dir() else []
     return ai.clip("\n\n".join(parts), limit, "memories")
-
-
-def api_entry(entry):
-    return {STORED.get(k, k): v for k, v in entry.items()}
-
-
-def api_round(r):
-    out = {ROUND_KEYS.get(k, k): v for k, v in r.items()}
-    if out.get("kind") == "rueckgaengig":
-        out["kind"] = "undo"
-    return out
 
 
 # ---------- Background jobs ----------
@@ -237,17 +223,18 @@ def save_settings(s):
 
 
 def set_root(path):
-    """Checks the folder and switches everything (letters, review.json, claude -p) to it."""
-    global ROOT, APPS, STATE
+    """Checks the folder and switches everything (letters, state, claude -p) to it."""
+    global ROOT, APPS, LAY
     p = Path(path).expanduser()
     if not p.is_absolute():
         raise ValueError("Path must be absolute")
     p = p.resolve()
     if not p.is_dir():
         raise ValueError("Folder does not exist")
-    if not (p / "Bewerbungen").is_dir():
-        raise ValueError("Folder has no subfolder Bewerbungen")
-    ROOT, APPS, STATE = p, p / "Bewerbungen", p / "Bewerbungen" / "_Review" / "review.json"
+    if not data_folder(p):
+        raise ValueError("Folder has no subfolder applications (or Bewerbungen)")
+    ROOT, LAY = p, layout.get(p)
+    APPS = LAY.apps
     return p
 
 
@@ -343,7 +330,12 @@ def public_settings(s=None):
     s = s or load_settings()
     return {**s, "providers": [ai.public(p) for p in s["providers"]], "version": VERSION, "config_dir": str(storage.config_dir()),
             "tools": {t: bool(storage.tool(t)) for t in ("soffice", "pdftotext")}, "thunderbird": bool(thunderbird.program()),
-            "rulecheck": userprofile.load(ROOT)["regelcheck"] if ROOT else userprofile.DEFAULT["regelcheck"]}
+            "rulecheck": userprofile.load(ROOT)["rule_check"] if ROOT else userprofile.DEFAULT["rule_check"]}
+
+
+def data_folder(p):
+    """Is p a data folder (English or German layout)?"""
+    return (p / layout.PATHS["apps"][0]).is_dir() or (p / layout.PATHS["apps"][1]).is_dir()
 
 
 def list_dirs(path):
@@ -351,8 +343,8 @@ def list_dirs(path):
     if not p.is_dir():
         raise ValueError("Folder does not exist")
     dirs = sorted((d for d in p.iterdir() if d.is_dir() and not d.name.startswith(".")), key=lambda d: d.name.lower())
-    return {"path": str(p), "parent": str(p.parent) if p.parent != p else None, "ok": (p / "Bewerbungen").is_dir(),
-            "dirs": [{"name": d.name, "ok": (d / "Bewerbungen").is_dir()} for d in dirs]}
+    return {"path": str(p), "parent": str(p.parent) if p.parent != p else None, "ok": data_folder(p),
+            "dirs": [{"name": d.name, "ok": data_folder(d)} for d in dirs]}
 
 
 # ---------- First setup ----------
@@ -361,7 +353,7 @@ OPEN_WITHOUT_FOLDER = {"/api/setup", "/api/settings", "/api/dirs", "/api/provide
 
 
 def setup_info():
-    return {"needed": ROOT is None, "suggestion": str(Path.home() / "Bewerbungen"), "home": str(Path.home())}
+    return {"needed": ROOT is None, "suggestion": str(Path.home() / ("Bewerbungen" if lang() == "de" else "Applications")), "home": str(Path.home())}
 
 
 def setup(body):
@@ -373,18 +365,18 @@ def setup(body):
     if body.get("mode") == "new":
         if not str(body.get("name", "")).strip() or "@" not in str(body.get("email", "")):
             raise ValueError("Give name and e-mail" if en else "Name und E-Mail angeben")
-        if (path / "Bewerbungen").is_dir():
-            raise ValueError("There is already a folder Bewerbungen/ there: choose \"Open existing folder\"" if en else
-                             "Dort gibt es schon einen Ordner Bewerbungen/: \"Vorhandenen Ordner öffnen\" wählen")
+        if data_folder(path):
+            raise ValueError("There already is a data folder there: choose \"Open existing folder\"" if en else
+                             "Dort gibt es schon einen Datenordner: \"Vorhandenen Ordner öffnen\" wählen")
         if path.exists() and any(path.iterdir()):
             raise ValueError("The folder is not empty; choose a new or empty folder" if en else "Der Ordner ist nicht leer; einen neuen oder leeren Ordner wählen")
         shutil.copytree(DIR / "example" / ("en" if en else "de"), path, dirs_exist_ok=True)
         with LOCK:
             update_settings({"root": str(path)})
-        userprofile.save(ROOT, {"name": body.get("name", ""), "email": body.get("email", ""), "ort": body.get("town", "")})
+        userprofile.save(ROOT, {"name": body.get("name", ""), "email": body.get("email", ""), "town": body.get("town", "")})
     else:
         with LOCK:
-            update_settings({"root": str(path)})  # checks that Bewerbungen/ exists
+            update_settings({"root": str(path)})  # checks that it is a data folder
     return setup_info()
 
 
@@ -411,7 +403,7 @@ def check_facts(new, before, sources):
 def run_job(rel, feedback):
     p = resolve(rel)
     before = p.read_text("utf-8")
-    backup = storage.backup(APPS, p)
+    backup = storage.backup(LAY.backups, p)
     prov = provider_for("feedback")
     prof = userprofile.load(ROOT)
     rules = userprofile.rules(prof)
@@ -420,8 +412,8 @@ def run_job(rel, feedback):
         if prov["type"] == "claude-code":  # agentic: Claude Code reads and edits the file itself
             # memory: continue the same Claude conversation per letter; when it is gone, start fresh with the rounds in the prompt
             old = (load_state().get(rel) or {}).get("claude_session", "")
-            rounds = [r for r in learnings.read(APPS) if r.get("path") == rel]
-            after = rounds[max((i for i, r in enumerate(rounds) if r.get("typ") != "rueckgaengig"), default=-1) + 1:]
+            rounds = [r for r in learnings.read(ROOT) if r.get("path") == rel]
+            after = rounds[max((i for i, r in enumerate(rounds) if r.get("kind") != "undo"), default=-1) + 1:]
             since = "\nSince your last answer your change was rejected with undo." if after else ""
             # only this letter may be edited; no shell, no web (feedback may quote postings, they must not send data out)
             kw = dict(allowed=["Read", "Glob", "Grep", f"Edit({rel})"], disallowed=["Bash", "Write", *ai.NO_WEB])
@@ -437,7 +429,7 @@ def run_job(rel, feedback):
             if text is None:
                 history = rounds_text(rel)
                 text = ai.run_claude(PROMPT.format(path=rel, feedback=feedback, person=userprofile.person(prof), rules=rules, language=language_name(),
-                                                   profile_file=prof["dateien"]["profil"], style_file=prof["dateien"]["stil"])
+                                                   profile_file=prof["files"]["profile"], style_file=prof["files"]["style"])
                                      + (f"\n\nEarlier rounds for this letter (do not contradict them):\n{history}" if history else ""),
                                      ROOT, prov.get("model", ""), info=info, task="feedback", **kw)
             session = info.get("session_id", "")
@@ -446,8 +438,8 @@ def run_job(rel, feedback):
                 warning = ("Warning: the AI also changed: " if lang() == "en" else "Achtung, die KI hat ausserdem geändert: ") + ", ".join(other[:10])
         else:  # plain language model: gets everything in the prompt and returns the whole file
             out = ai.complete(prov, FEEDBACK_PROMPT.format(path=rel, feedback=feedback, letter=before, person=userprofile.person(prof), rules=rules,
-                                                           language=language_name(), profile=ai.clip(userprofile.text(ROOT, prof, "profil"), 30000, "profile"),
-                                                           style=ai.clip(userprofile.text(ROOT, prof, "stil"), 10000, "style"),
+                                                           language=language_name(), profile=ai.clip(userprofile.text(ROOT, prof, "profile"), 30000, "profile"),
+                                                           style=ai.clip(userprofile.text(ROOT, prof, "style"), 10000, "style"),
                                                            rounds=rounds_text(rel) or "(first round)", memory=memory_text() or "(none)"),
                               max_tokens=8000, timeout=600, cwd=ROOT)
             ai.check_cancelled()
@@ -462,46 +454,43 @@ def run_job(rel, feedback):
         raise
     after_text = p.read_text("utf-8")
     # sources: what the person wrote (this and earlier feedback), never the AI's answers, which repeat earlier warnings
-    asked = [r.get("feedback", "") for r in learnings.read(APPS) if r.get("path") == rel]
+    asked = [r.get("feedback", "") for r in learnings.read(ROOT) if r.get("path") == rel]
     facts, fact_text = check_facts(after_text, before, "\n".join([userprofile.facts_text(ROOT, prof), p.parent.name, feedback, *asked]))
     warning = "\n\n".join(filter(None, [warning, fact_text]))
     if warning:
         text = f"{text}\n\n{warning}"
     with LOCK:
         state = load_state()
-        learnings.read(APPS, state)  # the very first time, back-fill old answers before the new round is added
-        entry = state.setdefault(rel, {"status": "offen", "feedback": ""})
+        learnings.read(ROOT, state)  # the very first time, back-fill old answers before the new round is added
+        entry = state.setdefault(rel, {"status": "open", "feedback": ""})
         if entry.get("feedback", "") == feedback:  # only clear when nothing new was added meanwhile
             entry["feedback"] = ""
-        entry["antwort"] = text
+        entry["answer"] = text
         if session:
             entry["claude_session"] = session
         save_state(state)
         changed = before != after_text
-        learnings.append(APPS, {"path": rel, "firma": p.parent.name, "feedback": feedback, "antwort": text, "changed": changed,
-                                "backup": backup.relative_to(ROOT).as_posix(), "anbieter": prov.get("name", ""),
-                                **({"sitzung": session} if session else {})})
+        learnings.append(ROOT, {"path": rel, "company": p.parent.name, "feedback": feedback, "answer": text, "changed": changed,
+                                "backup": backup.relative_to(ROOT).as_posix(), "provider": prov.get("name", ""),
+                                **({"session": session} if session else {})})
     return {"text": text, "before": before, "backup": backup.relative_to(ROOT).as_posix(), "changed": changed, "facts": facts}
 
 
 # ---------- Letters and status ----------
 
 def load_state():
-    try:
-        return json.loads(STATE.read_text("utf-8"))
-    except FileNotFoundError:
-        return {}
+    """{letter path: {"status", "feedback", "since", "phase", "files", "hints", "answer", ...}} with English keys and values."""
+    return LAY.read_json("state", {})
 
 
 def save_state(state):
-    STATE.parent.mkdir(exist_ok=True)
-    storage.write_atomic(STATE, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    LAY.write_json("state", state)
 
 
 def git_new_or_changed():
     """None when the folder is no git repo: then all letters without an entry count as new."""
     try:
-        r = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--others", "--modified", "--exclude-standard", "--", "Bewerbungen"],
+        r = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--others", "--modified", "--exclude-standard", "--", LAY.rel("apps")],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
     except FileNotFoundError:  # git not installed
         return None
@@ -523,17 +512,17 @@ def run_finalize(rel):
     ai.check_cancelled()
     with LOCK:
         state = load_state()
-        entry = state.setdefault(rel, {"status": "offen", "feedback": ""})
-        entry.update(status="final", seit=date.today().isoformat(), dateien=res["dateien"], pruefung=res["pruefung"],
-                     finalisiert=datetime.now().isoformat(timespec="seconds"))
+        entry = state.setdefault(rel, {"status": "open", "feedback": ""})
+        entry.update(status="final", since=date.today().isoformat(), files=res["files"], hints=res["hints"],
+                     finalized=datetime.now().isoformat(timespec="seconds"))
         save_state(state)
-    return {"files": res["dateien"], "hints": res["pruefung"]}
+    return {"files": res["files"], "hints": res["hints"]}
 
 
 def migrate_moved(state, present):
     """A letter whose folder was renamed keeps its status, feedback history and Claude session: an entry whose file
     is gone moves to the one new letter with the same file name. Returns True when something moved."""
-    gone = [rel for rel in state if rel.startswith("Bewerbungen/") and rel not in present and not (ROOT / rel).exists()]
+    gone = [rel for rel in state if rel.startswith(LAY.rel("apps") + "/") and rel not in present and not (ROOT / rel).exists()]
     moved = {}
     for rel in gone:
         name = Path(rel).name
@@ -542,16 +531,16 @@ def migrate_moved(state, present):
             state[cands[0]] = state.pop(rel)
             moved[rel] = cands[0]
     if moved:
-        log = learnings.log_path(APPS)
+        log = LAY.feedback_log
         if log.is_file():
             lines = []
             for line in log.read_text("utf-8").splitlines():
                 try:
-                    r = json.loads(line)
+                    r = LAY.to_en(json.loads(line), "feedback_log")
                     if r.get("path") in moved:
                         r["path"] = moved[r["path"]]
-                        r["firma"] = Path(r["path"]).parent.name
-                        line = json.dumps(r, ensure_ascii=False)
+                        r["company"] = Path(r["path"]).parent.name
+                        line = json.dumps(LAY.to_disk(r, "feedback_log"), ensure_ascii=False)
                 except json.JSONDecodeError:
                     pass
                 lines.append(line)
@@ -579,21 +568,21 @@ def thunderbird_mails():
 def pipeline_list():
     out, mails, prof = [], None, userprofile.load(ROOT)
     for it in letters():
-        if it["status"] != "abgeschickt":
+        if it["status"] != "sent":
             continue
         p = resolve(it["path"])
         d = pipeline.read(p)
-        phase = it.get("phase") or "abgeschickt"
-        if mails is None and phase != "absage":
+        phase = it.get("phase") or "sent"
+        if mails is None and phase != "rejected":
             mails = thunderbird_mails()
-        new = [] if phase == "absage" else None if mails is None else pipeline.new_mails(mails, it["company"], p.read_text("utf-8"), d, it.get("since", ""), prof)
+        new = [] if phase == "rejected" else None if mails is None else pipeline.new_mails(mails, it["company"], p.read_text("utf-8"), d, it.get("since", ""), prof)
         s = pipeline.summary(d, it.get("since", ""))
         if pipeline.ghosted(phase, s):  # long silence: moved to "no reply" like a manual change, with a status entry in the log
-            phase = "keine_antwort"
+            phase = "no_reply"
             with LOCK:
                 state = load_state()
-                state.setdefault(it["path"], {"status": "abgeschickt", "feedback": ""})["phase"] = phase
-                pipeline.add_event(p, log_title(p), "Status", pipeline.phase_name(phase, p, lang()) + f" ({pipeline.GHOST_DAYS}+)", lang=lang())
+                state.setdefault(it["path"], {"status": "sent", "feedback": ""})["phase"] = phase
+                pipeline.add_event(p, log_title(p), "status", pipeline.phase_name(phase, p, lang()) + f" ({pipeline.GHOST_DAYS}+)", lang=lang())
                 save_state(state)
             s = pipeline.summary(pipeline.read(p), it.get("since", ""))
         out.append({**{k: it.get(k) for k in ("path", "company", "title", "link", "score", "note", "since", "files", "check")},
@@ -608,7 +597,7 @@ def run_prepare(rel):
     with LOCK:
         d = pipeline.read(p)
         if d["preparation"]:  # back up the old version like with feedback
-            b = storage.backup(APPS, pipeline.path(p), f"{p.parent.name}_Vorbereitung.md")
+            b = storage.backup(LAY.backups, pipeline.path(p), f"{p.parent.name}_preparation.md")
             b.write_text(d["preparation"], "utf-8")
         d["preparation"] = text
         pipeline.write(p, log_title(p), d, lang=lang())
@@ -617,14 +606,14 @@ def run_prepare(rel):
 
 def run_followup(rel):
     p = resolve(rel)
-    since = (load_state().get(rel) or {}).get("seit", "")
+    since = (load_state().get(rel) or {}).get("since", "")
     return pipeline.follow_up(provider_for("followup"), ROOT, p, since, lang())
 
 
 def run_learnings(everything):
     with LOCK:
-        rounds = learnings.read(APPS, load_state())
-    until = learnings.evaluated_until(APPS)
+        rounds = learnings.read(ROOT, load_state())
+    until = learnings.evaluated_until(ROOT)
     new = rounds if everything or not until else [r for r in rounds if r.get("ts", "") > until]
     if not new:
         return {"suggestions": [], "n": 0, "until": until}
@@ -646,7 +635,7 @@ def run_draft(job):
 
 def run_appmail(rel):
     p = resolve(rel)
-    files = (load_state().get(rel) or {}).get("dateien") or {}
+    files = (load_state().get(rel) or {}).get("files") or {}
     names = [Path(files[k]).name for k in ("cl_pdf", "cv_pdf") if files.get(k)]
     return pipeline.application_mail(provider_for("followup"), ROOT, p, names, lang())
 
@@ -661,7 +650,7 @@ def output_file(rel):
 
 def resolve(rel):
     p = (ROOT / rel).resolve()
-    if p.parent.parent != APPS.resolve() or not p.name.startswith("Bewerbungsschreiben") or p.suffix != ".md":
+    if p.parent.parent != APPS.resolve() or not LAY.is_letter(p.name):
         raise ValueError("Path not allowed")
     return p
 
@@ -669,13 +658,13 @@ def resolve(rel):
 def pdf_current(p, entry):
     """Is there a cover letter PDF newer than the letter? Known from finalizing; otherwise only guess when the
     folder has exactly one letter."""
-    rel = (entry.get("dateien") or {}).get("cl_pdf")
+    rel = (entry.get("files") or {}).get("cl_pdf")
     if rel:
         cl = ROOT / rel
         return cl.is_file() and cl.stat().st_mtime >= p.stat().st_mtime
-    if len(list(p.parent.glob("Bewerbungsschreiben*.md"))) > 1:
+    if len(list(p.parent.glob(f"{LAY.letter}*.md"))) > 1:
         return False
-    return any(c.stat().st_mtime >= p.stat().st_mtime for c in p.parent.glob(userprofile.prefix(userprofile.load(ROOT), "anschreiben") + "*.pdf"))
+    return any(c.stat().st_mtime >= p.stat().st_mtime for c in p.parent.glob(userprofile.prefix(userprofile.load(ROOT), "cover_letter") + "*.pdf"))
 
 
 def letters():
@@ -709,7 +698,7 @@ def scores():
 def _letters():
     state, fresh, out = load_state(), git_new_or_changed(), []
     sc, checks = scores(), jobsearch.statuses(ROOT)
-    files = sorted(APPS.glob("*/Bewerbungsschreiben*.md"))
+    files = LAY.letters()
     changed = migrate_moved(state, {p.relative_to(ROOT).as_posix() for p in files})
     for p in files:
         rel = p.relative_to(ROOT).as_posix()
@@ -717,7 +706,7 @@ def _letters():
         if entry is None:
             if fresh is not None and rel not in fresh:
                 continue  # old, checked-in letters count as done
-            entry = state[rel] = {"status": "offen", "feedback": "", "seit": date.today().isoformat()}
+            entry = state[rel] = {"status": "open", "feedback": "", "since": date.today().isoformat()}
             changed = True
         text = p.read_text("utf-8")
         link = re.search(r"\]\((https?://[^)\s]+)\)", field(text, "Link"))
@@ -728,7 +717,7 @@ def _letters():
             "pdf": pdf_current(p, entry),  # only PDFs exported after the last change of the letter count
             **(sc.get(norm_url(link.group(1)), {}) if link else {}),
             "check": checks.get(jobsearch.job_history.normalize(link.group(1))) if link else None,  # "Posting still open?"
-            **api_entry(entry),
+            **entry,
         })
     if changed:
         save_state(state)
@@ -737,9 +726,9 @@ def _letters():
 
 def save_letter(p, rel, content):
     """Manual save: keeps a version at most every SAVE_BACKUP_EVERY, then writes atomically."""
-    v = storage.versions(APPS, p)
+    v = storage.versions(LAY.backups, p)
     if not v or datetime.now() - datetime.fromisoformat(v[0]["ts"]) > SAVE_BACKUP_EVERY:
-        storage.backup(APPS, p)
+        storage.backup(LAY.backups, p)
     storage.write_atomic(p, content)
 
 
@@ -785,26 +774,26 @@ def memory_files():
         add(p, "skill", f"{p.parents[1].name}/{p.name}")
     seen = {o["path"] for o in out}
     prof = userprofile.load(ROOT)
-    for k in prof["dateien"]:  # profile files from bewerbungs-board.json, when they live elsewhere
+    for k in prof["files"]:  # profile files from the profile, when they live elsewhere
         f = userprofile.path(ROOT, prof, k)
         if f.is_file() and str(f) not in seen:
-            add(f, "skill", f"{k}: {prof['dateien'][k]}")
+            add(f, "skill", f"{k}: {prof['files'][k]}")
     if (ROOT / "CLAUDE.md").is_file():
         add(ROOT / "CLAUDE.md", "claude", "CLAUDE.md")
     return out
 
 
 def save_profile_file(key, content, mtime):
-    """Write a profile file (profil.md, stil.md, ...), old version to _Review/backups/."""
+    """Write a profile file (profile.md, style.md, ...), old version to the backups."""
     prof = userprofile.load(ROOT)
-    if key not in prof["dateien"]:
+    if key not in prof["files"]:
         raise ValueError("unknown profile file")
     p = userprofile.path(ROOT, prof, key)
     current = str(p.stat().st_mtime_ns) if p.is_file() else ""
     if str(mtime or "") != current:
         raise FileExistsError("File was changed elsewhere in the meantime")
     if p.is_file():
-        storage.backup(APPS, p, f"Profil_{p.name}")
+        storage.backup(LAY.backups, p, f"{LAY.profile_dir.name}_{p.name}")
     p.parent.mkdir(parents=True, exist_ok=True)
     storage.write_atomic(p, content)
     return str(p.stat().st_mtime_ns)
@@ -830,26 +819,23 @@ def get_letter(q, _):
     p = resolve(rel)
     entry = load_state().get(rel, {})
     return {"content": p.read_text("utf-8"), "mtime": str(p.stat().st_mtime_ns), "feedback": entry.get("feedback", ""),
-            "status": entry.get("status", "offen"), "answer": entry.get("antwort", "")}
+            "status": entry.get("status", "open"), "answer": entry.get("answer", "")}
 
 
 def get_search_run(q, _):
     name = q1(q, "name")
-    d = ROOT / "Bewerbungen" / "_Stellensuche"
-    p = (d / (name + ".md")).resolve()
-    if p.parent != d.resolve() or not name.startswith("Stellensuche_"):
-        raise ValueError("Path not allowed")
-    text = p.read_text("utf-8")
+    text = (ROOT / run_file(name)).read_text("utf-8")
     r, st = jobsearch.parse_run(text), jobsearch.statuses(ROOT)
     for j in r["jobs"]:
         j["check"] = st.get(jobsearch.job_history.normalize(j.get("link", ""))) if j.get("link") else None
-    return {**r, "md": text, "name": name, "hidden": jobsearch.load_config(ROOT)["ausgeblendet"]}
+    return {**r, "md": text, "name": name, "hidden": jobsearch.load_config(ROOT)["hidden"]}
 
 
 def run_file(name):
-    d = ROOT / "Bewerbungen" / "_Stellensuche"
+    """Relative path of a result file of the job search by its name (jobsearch_<date>), only in the job search folder."""
+    d = LAY.search
     p = (d / (name + ".md")).resolve()
-    if p.parent != d.resolve() or not name.startswith("Stellensuche_") or not p.is_file():
+    if p.parent != d.resolve() or not name.startswith(LAY.run + "_") or not p.is_file():
         raise ValueError("Path not allowed")
     return p.relative_to(ROOT).as_posix()
 
@@ -874,30 +860,30 @@ def get_search_status(q, _):
 
 def get_rounds(q, _):
     with LOCK:
-        rounds = learnings.read(APPS, load_state())
+        rounds = learnings.read(ROOT, load_state())
     rel = q1(q, "path", "")
-    return {"rounds": [api_round(r) for r in rounds if not rel or r.get("path") == rel], "until": learnings.evaluated_until(APPS)}
+    return {"rounds": [r for r in rounds if not rel or r.get("path") == rel], "until": learnings.evaluated_until(ROOT)}
 
 
 def get_profile(q, _):
     prof = userprofile.load(ROOT)
     return {"profile": prof, "categories": documents.CATEGORIES, "root": str(ROOT),
-            "files": {k: {"path": v, "exists": userprofile.path(ROOT, prof, k).is_file()} for k, v in prof["dateien"].items()}}
+            "files": {k: {"path": v, "exists": userprofile.path(ROOT, prof, k).is_file()} for k, v in prof["files"].items()}}
 
 
 def get_profile_file(q, _):
     prof, key = userprofile.load(ROOT), q1(q, "key")
-    if key not in prof["dateien"]:
+    if key not in prof["files"]:
         raise ValueError("unknown profile file")
     p = userprofile.path(ROOT, prof, key)
-    return {"content": p.read_text("utf-8") if p.is_file() else "", "path": prof["dateien"][key], "mtime": str(p.stat().st_mtime_ns) if p.is_file() else ""}
+    return {"content": p.read_text("utf-8") if p.is_file() else "", "path": prof["files"][key], "mtime": str(p.stat().st_mtime_ns) if p.is_file() else ""}
 
 
 def get_templates(q, _):
     items = templates.listing(ROOT)
     for v in items:
         v["check"] = templates.check(ROOT, v["rel"], v["kind"], lang())
-    return {"list": items, "chosen": userprofile.load(ROOT)["vorlagen"], "layouts": list(templates.LAYOUTS)}
+    return {"list": items, "chosen": userprofile.load(ROOT)["templates"], "layouts": list(templates.LAYOUTS)}
 
 
 def get_template_preview(q, _):
@@ -921,11 +907,11 @@ def get_thunderbird(q, _):
 
 
 def get_versions(q, _):
-    return storage.versions(APPS, resolve(q1(q, "path")))
+    return storage.versions(LAY.backups, resolve(q1(q, "path")))
 
 
 def get_version(q, _):
-    return {"content": storage.version_text(APPS, resolve(q1(q, "path")), q1(q, "name"))}
+    return {"content": storage.version_text(LAY.backups, resolve(q1(q, "path")), q1(q, "name"))}
 
 
 def get_calendar(q, _):
@@ -933,12 +919,12 @@ def get_calendar(q, _):
     if ROOT is None:
         raise ValueError("No data folder set up yet")
     entries = []
-    sent = [it for it in letters() if it["status"] == "abgeschickt"] if "path" not in q else [{"path": q1(q, "path"), "company": resolve(q1(q, "path")).parent.name}]
+    sent = [it for it in letters() if it["status"] == "sent"] if "path" not in q else [{"path": q1(q, "path"), "company": resolve(q1(q, "path")).parent.name}]
     for it in sent:
         entries += [(it["company"], e) for e in pipeline.read(resolve(it["path"]))["events"]
                     if e["type"] in pipeline.DATE_TYPES and not (q1(q, "upcoming", "") and e["date"] < date.today().isoformat())]
     disp = "attachment" if q1(q, "download", "") else "inline"
-    return pipeline.ics(entries, lang()).encode(), "text/calendar; charset=utf-8", [("Content-Disposition", f"{disp}; filename=Bewerbungen.ics")]
+    return pipeline.ics(entries, lang()).encode(), "text/calendar; charset=utf-8", [("Content-Disposition", f"{disp}; filename=applications.ics")]
 
 
 EXPORT_SKIP = {".git", ".textcache", ".vorschau", "__pycache__", "node_modules"}
@@ -1075,9 +1061,9 @@ def post_search_start(q, body):
 
 def post_search_hide(q, body):
     cfg = jobsearch.load_config(ROOT)
-    cfg["ausgeblendet"] = [u for u in cfg["ausgeblendet"] if u != body["url"]] + ([body["url"]] if body.get("hidden") else [])
+    cfg["hidden"] = [u for u in cfg["hidden"] if u != body["url"]] + ([body["url"]] if body.get("hidden") else [])
     jobsearch.save_config(ROOT, cfg)
-    return {"hidden": cfg["ausgeblendet"]}
+    return {"hidden": cfg["hidden"]}
 
 
 def post_draft(q, body):
@@ -1112,10 +1098,10 @@ def post_memfile(q, body):
 
 
 def post_templates_generate(q, body):
-    kind = body.get("kind", "anschreiben")
-    if body.get("layout") not in templates.LAYOUTS or kind not in ("anschreiben", "lebenslauf"):
+    kind = body.get("kind", "cover_letter")
+    if body.get("layout") not in templates.LAYOUTS or kind not in ("cover_letter", "cv"):
         raise ValueError("unknown layout")
-    rel = (templates.cover_letter if kind == "anschreiben" else templates.cv)(ROOT, body["layout"], ui=lang())
+    rel = (templates.cover_letter if kind == "cover_letter" else templates.cv)(ROOT, body["layout"], ui=lang())
     return {"rel": rel, "check": templates.check(ROOT, rel, kind, lang())}
 
 
@@ -1140,7 +1126,7 @@ def post_learnings(q, body):
 def post_learnings_write(q, body):
     files = learnings.write(memory_dir(), body.get("entries", []))
     if body.get("until"):
-        learnings.set_evaluated_until(APPS, str(body["until"]))
+        learnings.set_evaluated_until(ROOT, str(body["until"]))
     return {"files": files}
 
 
@@ -1193,7 +1179,7 @@ def post_compose(q, body):
     to = str(body.get("to", "")).strip()
     if to and not re.fullmatch(r"[^\s@,;'\"<>]+@[^\s@,;'\"<>]+", to):
         raise ValueError("Invalid recipient")
-    files = (load_state().get(rel) or {}).get("dateien") or {}
+    files = (load_state().get(rel) or {}).get("files") or {}
     attach = [ROOT / files[k] for k in ("cl_pdf", "cv_pdf") if body.get("attach") and files.get(k) and (ROOT / files[k]).is_file()]
     thunderbird.compose(to, str(body.get("subject", ""))[:500], str(body.get("body", ""))[:20000], [output_file(a.relative_to(ROOT).as_posix()) for a in attach])
     return {"ok": True, "attached": [a.name for a in attach]}
@@ -1224,26 +1210,26 @@ def post_letter(q, body):
         save_letter(p, rel, body["content"])
         reply["mtime"] = str(p.stat().st_mtime_ns)
         if body.get("undo"):  # for the memory of the next round and the learnings
-            learnings.append(APPS, {"path": rel, "firma": p.parent.name, "typ": "rueckgaengig", "feedback": "",
-                                    "antwort": "The change of this round was rejected."})
+            learnings.append(ROOT, {"path": rel, "company": p.parent.name, "kind": "undo", "feedback": "",
+                                    "answer": "The change of this round was rejected."})
     with LOCK:
         state = load_state()
-        entry = state.setdefault(rel, {"status": "offen", "feedback": ""})
+        entry = state.setdefault(rel, {"status": "open", "feedback": ""})
         if "feedback" in body:
             entry["feedback"] = body["feedback"]
         if "status" in body:
             if body["status"] not in STATUSES:
                 raise ValueError("unknown status")
-            if body["status"] == "abgeschickt" and entry.get("status") != "abgeschickt":
-                entry.setdefault("phase", "abgeschickt")
-                pipeline.add_event(p, log_title(p), "Status", pipeline.phase_name("abgeschickt", p, lang()), lang=lang())
+            if body["status"] == "sent" and entry.get("status") != "sent":
+                entry.setdefault("phase", "sent")
+                pipeline.add_event(p, log_title(p), "status", pipeline.phase_name("sent", p, lang()), lang=lang())
             entry["status"] = body["status"]
-            entry["seit"] = date.today().isoformat()
+            entry["since"] = date.today().isoformat()
         if "phase" in body:
             if body["phase"] not in pipeline.PHASES:
                 raise ValueError("unknown phase")
-            if entry.get("phase", "abgeschickt") != body["phase"]:
-                pipeline.add_event(p, log_title(p), "Status", pipeline.phase_name(body["phase"], p, lang()), lang=lang())
+            if entry.get("phase", "sent") != body["phase"]:
+                pipeline.add_event(p, log_title(p), "status", pipeline.phase_name(body["phase"], p, lang()), lang=lang())
             entry["phase"] = body["phase"]
             reply["log_mtime"] = pipeline.read(p)["mtime"]
         save_state(state)
