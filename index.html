@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bewerbungs-Board</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
+<script src="boot.js"></script>
+<link rel="stylesheet" href="vendor/fonts.css">
+<link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
+<link rel="stylesheet" href="vendor/codemirror/dialog.min.css">
+<link rel="stylesheet" href="app.css">
+<script src="vendor/codemirror/codemirror.min.js"></script>
+<script src="vendor/codemirror/markdown.min.js"></script>
+<script src="vendor/codemirror/dialog.min.js"></script>
+<script src="vendor/codemirror/searchcursor.min.js"></script>
+<script src="vendor/codemirror/vim.min.js"></script>
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="i18n.js"></script>
+</head>
+<body data-view="letters">
+<svg hidden xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-letters" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></symbol>
+  <symbol id="i-pipe" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
+  <symbol id="i-jobs" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></symbol>
+  <symbol id="i-knowledge" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5V5.5M8 7h8M8 11h6"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10l3 2-3 2M12 14h5"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4"/></symbol>
+  <symbol id="i-restore" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></symbol>
+  <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="9.5" y="4" width="5" height="11" rx="1"/><rect x="16" y="4" width="5" height="7" rx="1"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+
+<div id="toasts" aria-live="polite"></div>
+
+<aside id="rail">
+  <button id="railToggle" class="railbtn" data-i18n-title="rail_toggle"><svg><use href="#i-chev"/></svg><span data-i18n="rail_collapse">Einklappen</span></button>
+  <nav>
+    <button class="railbtn" data-view="letters" data-i18n-title="tab_letters"><svg><use href="#i-letters"/></svg><span data-i18n="tab_letters">Bewerbungen</span><kbd>1</kbd></button>
+    <button class="railbtn" data-view="pipeline" data-i18n-title="tab_pipe"><svg><use href="#i-pipe"/></svg><span data-i18n="tab_pipe">Pipeline</span><kbd>4</kbd></button>
+    <button class="railbtn" data-view="jobs" data-i18n-title="tab_jobs"><svg><use href="#i-jobs"/></svg><span data-i18n="tab_jobs">Stellensuche</span><kbd>2</kbd></button>
+    <button class="railbtn" data-view="profile" data-i18n-title="tab_profile"><svg><use href="#i-user"/></svg><span data-i18n="tab_profile">Profil</span><kbd>5</kbd></button>
+    <button class="railbtn" data-view="knowledge" data-i18n-title="tab_knowledge"><svg><use href="#i-knowledge"/></svg><span data-i18n="tab_knowledge">Wissen</span><kbd>3</kbd></button>
+  </nav>
+  <div class="railbottom">
+    <button id="bPalette" class="railbtn" data-i18n-title="palette"><svg><use href="#i-palette"/></svg><span data-i18n="palette">Befehle</span><kbd>Ctrl K</kbd></button>
+    <button id="bHelp" class="railbtn" data-i18n-title="help"><svg><use href="#i-help"/></svg><span data-i18n="help">Hilfe</span><kbd>?</kbd></button>
+    <button id="bSettings" class="railbtn" data-view="settings" data-i18n-title="settings"><svg><use href="#i-settings"/></svg><span data-i18n="settings">Einstellungen</span><kbd>,</kbd></button>
+  </div>
+</aside>
+
+<div id="main">
+  <header id="top">
+    <div class="crumb"><span id="crumbRoot" data-i18n="tab_letters">Bewerbungen</span><span class="sep" id="crumbSep">/</span><h1 id="title"><span data-i18n="none">Keine Bewerbung gewählt</span><small></small></h1></div>
+    <span class="pill" id="pill"></span>
+    <div class="actions">
+      <button id="bWarn" class="warnbtn" data-view-for="letters" hidden></button>
+      <a id="bCL" class="btn" target="_blank" rel="noopener" data-view-for="letters" hidden data-i18n="cl">Anschreiben</a>
+      <a id="bCV" class="btn" target="_blank" rel="noopener" data-view-for="letters" hidden data-i18n="cv">Lebenslauf</a>
+      <button id="bFinal" class="primary" data-view-for="letters" title="F" data-i18n="final">Finalisieren</button>
+      <button id="bSent" class="primary" data-view-for="letters" title="S" data-i18n="sent">Abgeschickt</button>
+      <div class="menu" id="more" data-view-for="letters">
+        <button id="bMore" class="icon" data-i18n-title="more"><svg><use href="#i-more"/></svg></button>
+        <div class="menulist">
+          <a id="bLink" class="btn" target="_blank" rel="noopener"><span data-i18n="link">Anzeige öffnen</span><kbd>o</kbd></a>
+          <button id="bCheckM"><span data-i18n="pc_btn">Anzeige noch offen?</span></button>
+          <button id="bPrev"><span data-i18n="preview">Vorschau</span><kbd>p</kbd></button>
+          <button id="bRaw"><span data-i18n="raw">Rohtext</span><kbd>m</kbd></button>
+          <button id="bDiffM"><span data-i18n="diff_title">Änderung von Claude</span><kbd>d</kbd></button>
+          <button id="bApplyM"><span data-i18n="apply">Feedback umsetzen</span><kbd>A</kbd></button>
+          <button id="bMarkFinal"><span data-i18n="mark_final">Nur als final markieren</span></button>
+          <button id="bVersions"><span data-i18n="versions">Frühere Fassungen</span><kbd>v</kbd></button>
+          <button id="bArchiveM"><span data-i18n="archive">Archivieren</span></button>
+          <button id="bRefin"><span data-i18n="refinal">PDFs neu erzeugen</span></button>
+          <button id="bReload"><span data-i18n="reload">Neu laden</span><kbd>r</kbd></button>
+          <button id="bBack"><span data-i18n="back_offen">Zurück</span><kbd>O</kbd></button>
+        </div>
+      </div>
+      <button id="bJStartTop" class="primary" data-view-for="jobs" data-i18n="j_start">Suche starten</button>
+      <button id="bSBack" data-view-for="settings knowledge" data-i18n="s_back">Zurück zur Übersicht</button>
+    </div>
+  </header>
+
+  <div id="ws">
+    <div class="zone" data-zone="left"></div>
+    <div class="split v" data-for="left"></div>
+    <div class="mid">
+      <div class="top">
+        <div class="zone" data-zone="center"></div>
+        <div class="split v" data-for="right"></div>
+        <div class="zone" data-zone="right"></div>
+      </div>
+      <div class="split h" data-for="bottom"></div>
+      <div class="zone" data-zone="bottom"></div>
+    </div>
+  </div>
+
+  <!-- view: job search -->
+  <div id="jobs" hidden>
+    <aside id="jruns">
+      <h2 data-i18n="j_runs">Läufe</h2>
+      <div id="jrunlist"></div>
+    </aside>
+    <section id="jmain">
+      <div class="seg" id="jseg"><button id="bJResults" class="on" data-i18n="j_results">Ergebnisse</button><button id="bJRun" data-i18n="j_run">Suche starten</button><button id="bJConfig" data-i18n="j_config">Sucheinstellungen</button></div>
+      <div id="jresults">
+        <div class="jbar">
+          <span class="notes"><button data-note="A" class="on">A</button><button data-note="B" class="on">B</button><button data-note="C" class="on">C</button></span>
+          <label class="chip"><input type="checkbox" id="jOnlyNew"><span data-i18n="j_only_new">nur NEU</span></label>
+          <label class="chip"><input type="checkbox" id="jShowHidden"><span data-i18n="j_show_hidden">Ausgeblendete zeigen</span></label>
+          <select id="jSort" data-i18n-title="j_sort"><option value="score" data-i18n="j_sort_score">Wertung</option><option value="file" data-i18n="j_sort_file">Note, wie in der Datei</option><option value="company" data-i18n="j_sort_company">Firma A bis Z</option></select>
+          <button id="jCheck" data-i18n="j_check" data-i18n-title="j_check_title">Noch offen?</button>
+          <input id="jText" data-i18n-ph="j_filter_text" placeholder="Filter (Firma, Titel, Ort)">
+          <span id="jCount"></span>
+        </div>
+        <details id="jhead"><summary data-i18n="j_head">Kopf des Laufs</summary><div class="md"></div></details>
+        <div id="jcards"></div>
+        <details id="jmore"><summary data-i18n="j_more">Weitere Abschnitte</summary><div class="md"></div></details>
+      </div>
+      <div id="jconfig" hidden>
+        <section><h2 data-i18n="j_fields">Suchfelder</h2><div id="jfields"></div><button id="bJAddField" data-i18n="j_add_field">Suchfeld hinzufügen</button></section>
+        <section class="grid2">
+          <div><label data-i18n="j_places">Orte und Regionen</label><textarea id="jPlaces" rows="6"></textarea></div>
+          <div><label data-i18n="j_li_places">LinkedIn: Suchorte</label><textarea id="jLiPlaces" rows="3"></textarea></div>
+          <div><label data-i18n="j_excl">Ausschlussbegriffe</label><textarea id="jExcl" rows="6"></textarea></div>
+          <div class="row"><label data-i18n="j_radius">Umkreis in km</label><input type="number" id="jRadius" min="5" max="500"></div>
+          <div class="row"><label data-i18n="j_fresh">Frische in Tagen</label><input type="number" id="jFresh" min="1" max="365"></div>
+          <div class="row"><label data-i18n="j_target">Zielanzahl</label><input type="number" id="jTargetMin" min="1" max="200"> <span data-i18n="j_to">bis</span> <input type="number" id="jTargetMax" min="1" max="200"></div>
+          <div class="row"><label data-i18n="j_max_details">Höchstens geprüfte Anzeigen</label><input type="number" id="jMaxDetails" min="1" max="500"></div>
+          <div class="row"><label data-i18n="j_remote">Remote einbeziehen</label><input type="checkbox" id="jRemote"></div>
+          <div class="row"><label data-i18n="j_sources">Quellen</label><label><input type="checkbox" id="jQJobs"> jobs.ch</label> <label><input type="checkbox" id="jQLi"> LinkedIn</label></div>
+          <div><label data-i18n="j_companies">Firmen beobachten</label><textarea id="jCompanies" rows="3" placeholder="greenhouse:acme Acme Ltd"></textarea><div class="hint" data-i18n="j_companies_hint"></div></div>
+          <div class="row"><label data-i18n="j_auto">Täglich automatisch suchen</label><input type="checkbox" id="jAuto"><label data-i18n="j_auto_hour">ab</label><input type="number" id="jAutoHour" min="0" max="23"><span data-i18n="j_auto_clock">Uhr</span></div>
+          <div class="hint" data-i18n="j_auto_hint"></div>
+          <div class="row"><label data-i18n="j_provider">Anbieter für die Bewertung</label><select id="jProvider"></select></div>
+        </section>
+        <section><h2 data-i18n="j_scale">Bewertungsraster</h2><textarea id="jScale" rows="10"></textarea></section>
+        <div class="row"><button id="bJSave" class="primary" data-i18n="j_save">Speichern</button><span id="jcfgmsg" class="hint"></span></div>
+        <section><h2 data-i18n="j_refs">Skill-Dateien</h2><div id="jrefs"></div></section>
+      </div>
+      <div id="jrun" hidden>
+        <section>
+          <div class="row"><label data-i18n="j_mode">Modus</label><select id="jMode"><option value="builtin" data-i18n="j_mode_builtin">Eingebaut (jedes Modell)</option><option value="claude" data-i18n="j_mode_claude">Claude Code (agentisch)</option></select>
+            <button id="bJStart" class="primary" data-i18n="j_start">Suche starten</button><button id="bJStop" data-i18n="j_stop" hidden>Abbrechen</button><span id="jstate"></span></div>
+          <div class="hint" data-i18n="j_mode_hint"></div>
+          <div id="jcounters"></div>
+          <pre id="jlog"></pre>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <!-- view: pipeline, everything after sending -->
+  <div id="pipe" hidden>
+    <section id="pmain">
+      <div class="jbar">
+        <div class="seg" id="pseg"><button data-pv="next" class="on" data-i18n="p_next">Als Nächstes</button><button data-pv="board" data-i18n="p_board">Übersicht</button><button data-pv="agenda" data-i18n="p_agenda">Agenda</button><button data-pv="stats" data-i18n="p_stats">Statistik</button></div>
+        <span id="pCount"></span>
+        <span class="spacer"></span>
+        <button id="pReload" data-i18n="reload">Neu laden</button>
+        <button id="pNotify" data-i18n="p_notify" data-i18n-title="p_notify_title">Erinnerungen</button>
+        <button id="pIcsAll" data-i18n="p_ics_all">Alle Termine als .ics</button>
+        <button id="pSub" data-i18n="p_subscribe" data-i18n-title="p_subscribe_title">Kalender abonnieren</button>
+      </div>
+      <div id="pempty" class="empty" hidden><p data-i18n="p_none"></p><button data-i18n="p_none_action"></button></div>
+      <div id="pnext"></div>
+      <div id="pboard" hidden></div>
+      <div id="pagenda" hidden></div>
+      <div id="pstats" hidden></div>
+    </section>
+    <aside id="dossier" hidden></aside>
+  </div>
+
+  <!-- view: profile, everything about the person -->
+  <div id="profile" hidden>
+    <nav id="prnav">
+      <button data-psec="details" class="on" data-i18n="pr_details">Angaben</button>
+      <button data-psec="documents" data-i18n="pr_docs">Dokumente</button>
+      <button data-psec="text" data-i18n="pr_text_section">Profiltext</button>
+      <button data-psec="templates" data-i18n="tpl_title">Vorlagen</button>
+    </nav>
+    <div class="page">
+      <div id="prSteps" hidden></div>
+      <section data-psec="details">
+        <h2 data-i18n="pr_details">Angaben</h2>
+        <div class="hint" data-i18n="pr_details_hint"></div>
+        <form id="prForm" class="prform" autocomplete="off">
+          <label><span data-i18n="pr_name">Name</span><input name="name"></label>
+          <label><span data-i18n="pr_town">Ort</span><input name="ort"></label>
+          <label><span data-i18n="pr_email">E-Mail</span><input name="email" type="email"></label>
+          <label><span data-i18n="pr_phone">Telefon</span><input name="telefon"></label>
+          <label class="wide"><span data-i18n="pr_address">Adresse</span><textarea name="adresse" rows="2"></textarea></label>
+          <label><span data-i18n="pr_photo">Foto</span><input name="foto" placeholder="Bilder/foto.jpg"><span class="imgrow"><img id="pr_foto_img" alt="" hidden><label class="btn"><span data-i18n="pr_upload_image">Bild hochladen</span><input type="file" id="pr_foto_file" accept="image/*" hidden></label></span></label>
+          <label><span data-i18n="pr_signature">Unterschrift</span><input name="unterschrift" placeholder="Bilder/unterschrift.png"><span class="imgrow"><img id="pr_unterschrift_img" alt="" hidden><label class="btn"><span data-i18n="pr_upload_image">Bild hochladen</span><input type="file" id="pr_unterschrift_file" accept="image/*" hidden></label></span></label>
+          <label class="wide"><span data-i18n="pr_rules">Schreibregeln (eine pro Zeile)</span><textarea name="regeln" rows="5"></textarea><small data-i18n="pr_rules_hint"></small></label>
+          <label class="wide check"><input type="checkbox" name="ss_statt_sz"><span data-i18n="pr_ss">Schweizer Rechtschreibung: „ß“ in KI-Texten durch „ss“ ersetzen</span></label>
+          <h3 class="wide" data-i18n="pr_rulecheck">Regel-Check im Editor</h3>
+          <label><span data-i18n="pr_rc_min">Wörter mindestens (0 = egal)</span><input name="rc_min" type="number" min="0" max="5000"></label>
+          <label><span data-i18n="pr_rc_max">Wörter höchstens (0 = egal)</span><input name="rc_max" type="number" min="0" max="5000"></label>
+          <label class="wide"><span data-i18n="pr_rc_chars">Verbotene Zeichen oder Folgen (eine pro Zeile, Leerzeichen zählen mit)</span><textarea name="rc_chars" rows="3"></textarea></label>
+          <h3 class="wide" data-i18n="pr_file_names">Dateinamen</h3>
+          <label><span data-i18n="pr_dn_anschreiben">Anschreiben</span><input name="dn_anschreiben"></label>
+          <label><span data-i18n="pr_dn_lebenslauf">Lebenslauf</span><input name="dn_lebenslauf"></label>
+          <small class="wide" data-i18n="pr_dn_hint"></small>
+          <h3 class="wide" data-i18n="pr_storage">Ablage im Datenordner</h3>
+          <label><span data-i18n="pr_f_profil">Profil</span><input name="df_profil"></label>
+          <label><span data-i18n="pr_f_stil">Schreibstil</span><input name="df_stil"></label>
+          <label><span data-i18n="pr_f_suchprofil">Suchprofil</span><input name="df_suchprofil"></label>
+          <label><span data-i18n="pr_f_bewertung">Notenraster</span><input name="df_bewertung"></label>
+          <label><span data-i18n="pr_f_lebenslauf">Lebenslauf</span><input name="df_lebenslauf"></label>
+          <label class="wide"><span data-i18n="pr_folders">Verknüpfte Dokument-Ordner (einer pro Zeile, optional „Pfad: Kategorie“)</span><textarea name="folders" rows="3"></textarea></label>
+          <div class="wide btns"><button class="primary" data-i18n="save">Speichern</button></div>
+        </form>
+      </section>
+      <section data-psec="documents" hidden>
+        <h2 data-i18n="pr_docs">Dokumente</h2>
+        <div class="hint" data-i18n="pr_docs_hint"></div>
+        <label id="prDrop" class="dropzone"><span data-i18n="pr_drop">Dateien hierher ziehen oder klicken</span><input type="file" id="prFiles" multiple hidden></label>
+        <div class="row"><label data-i18n="pr_category">Ablegen als</label><select id="prCategory"></select><span id="prDocCount" class="muted"></span></div>
+        <div id="prDocList"></div>
+      </section>
+      <section data-psec="text" hidden>
+        <h2 data-i18n="pr_text_section">Profiltext</h2>
+        <div class="hint" data-i18n="pr_text_hint2"></div>
+        <div class="row"><select id="prFileSelect"><option value="profil">Profil</option><option value="stil">Schreibstil</option><option value="suchprofil">Suchprofil</option><option value="bewertung">Notenraster</option><option value="lebenslauf">Lebenslauf</option></select>
+          <button id="bPrSave" data-i18n="save">Speichern</button><span id="prDirty" class="muted" hidden>●</span><span class="spacer"></span><button id="bPrSuggest" class="primary"></button></div>
+        <div id="prSuggestion" hidden></div>
+        <div id="prEditor"></div>
+      </section>
+      <section data-psec="templates" hidden>
+        <h2 data-i18n="tpl_title">Vorlagen</h2>
+        <div class="hint" data-i18n="tpl_hint"></div>
+        <div class="tplgrid">
+          <div class="tplcard" data-kind="anschreiben">
+            <h3 data-i18n="tpl_anschreiben">Anschreiben</h3>
+            <select class="tplselect"></select>
+            <ul class="tplcheck"></ul>
+            <div class="btns"><a class="btn tplpdf" target="_blank" rel="noopener" hidden data-i18n="tpl_pdf">PDF öffnen</a><label class="btn"><span data-i18n="tpl_upload">Eigene docx hochladen</span><input type="file" accept=".docx" hidden></label></div>
+            <div class="tplnew"><span data-i18n="tpl_generate">Neu erzeugen aus deinen Angaben:</span> <span class="tpllayouts"></span></div>
+            <iframe class="tplpreview" data-i18n-title="preview" title="Vorschau" hidden></iframe>
+          </div>
+          <div class="tplcard" data-kind="lebenslauf">
+            <h3 data-i18n="tpl_lebenslauf">Lebenslauf</h3>
+            <select class="tplselect"></select>
+            <ul class="tplcheck"></ul>
+            <div class="btns"><a class="btn tplpdf" target="_blank" rel="noopener" hidden data-i18n="tpl_pdf">PDF öffnen</a><label class="btn"><span data-i18n="tpl_upload">Eigene docx hochladen</span><input type="file" accept=".docx" hidden></label></div>
+            <div class="tplnew"><span data-i18n="tpl_cv_generate">Neu erzeugen aus deinem Lebenslauf-Inhalt:</span> <span class="tpllayouts"></span> <button id="bTplCvContent" data-i18n="tpl_cv_content">Inhalt bearbeiten</button></div>
+            <div class="hint" data-i18n="tpl_cv_hint"></div>
+            <iframe class="tplpreview" data-i18n-title="preview" title="Vorschau" hidden></iframe>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- view: knowledge -->
+  <div id="knowledge" hidden>
+    <div class="page">
+      <div class="seg" id="wseg"><button data-wsec="memory" class="on" data-i18n="s_memory">Erinnerungen</button><button data-wsec="learn" data-i18n="lr_tab">Learnings</button></div>
+      <section data-wsec="memory">
+        <div class="hint" data-i18n="s_memory_hint"></div>
+        <div id="memory"></div>
+      </section>
+      <section data-wsec="learn" hidden>
+        <div class="hint" data-i18n="lr_hint"></div>
+        <div class="lrbar"><button id="bLrNew" class="primary" data-i18n="lr_sum_new">Neue Runden zusammenfassen</button><button id="bLrAll" data-i18n="lr_sum_all">Alle neu auswerten</button><button id="bLrReload" data-i18n="reload">Neu laden</button><span id="lrState" class="muted"></span></div>
+        <div id="lrSuggestions" hidden></div>
+        <h3 class="grp" data-i18n="lr_all">Alle Feedback-Runden</h3>
+        <div id="lrRounds"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- view: settings -->
+  <div id="settings" hidden>
+    <nav id="snav">
+      <button data-sec="general" class="on" data-i18n="s_general">Allgemein</button>
+      <button data-sec="look" data-i18n="s_look">Darstellung</button>
+      <button data-sec="editor" data-i18n="h_editor">Editor</button>
+      <button data-sec="ai" data-i18n="p_title">KI-Anbieter</button>
+      <button data-sec="folder" data-i18n="s_folder">Ordner</button>
+    </nav>
+    <div class="page">
+      <span id="smsg" class="err"></span>
+      <section data-sec="general">
+        <h2 data-i18n="s_general">Allgemein</h2>
+        <div class="row"><label data-i18n="s_lang">Sprache</label><select id="sLang"><option value="de">Deutsch</option><option value="en">English</option></select></div>
+        <div class="row"><label data-i18n="s_layout">Layout</label><button id="bLayoutReset" data-i18n="s_layout_reset">Layout zurücksetzen</button></div>
+        <div class="row"><label data-i18n="s_update">Nach neuer Version fragen</label><input type="checkbox" id="sUpdate"></div>
+        <div class="hint" data-i18n="s_update_hint"></div>
+        <div id="sInfo" class="hint"></div>
+      </section>
+      <section data-sec="look" hidden>
+        <h2 data-i18n="s_look">Darstellung</h2>
+        <div class="row"><label data-i18n="s_theme">Theme</label><select id="sTheme"><option value="system" data-i18n="th_system">System</option><option value="light" data-i18n="th_light">Hell</option><option value="dark" data-i18n="th_dark">Dunkel</option></select></div>
+        <div class="row"><label data-i18n="s_accent">Akzentfarbe</label><span class="swatches" id="swatches"></span><input type="color" id="sAccent"></div>
+      </section>
+      <section data-sec="editor" hidden>
+        <h2 data-i18n="h_editor">Editor</h2>
+        <div class="row"><label data-i18n="s_vim">Vim-Modus</label><input type="checkbox" id="sVim"></div>
+        <div class="hint" data-i18n="s_vim_hint"></div>
+        <div class="row"><label data-i18n="s_spell">Rechtschreibprüfung</label><input type="checkbox" id="sSpell"></div>
+        <div class="hint" data-i18n="s_spell_hint"></div>
+      </section>
+      <section data-sec="ai" hidden>
+        <h2 data-i18n="p_title">KI-Anbieter</h2>
+        <div class="hint" data-i18n="p_hint"></div>
+        <div id="plist"></div>
+        <div class="row"><button id="bPAdd" data-i18n="p_add">Anbieter hinzufügen</button></div>
+        <form id="pform" hidden>
+          <div class="row"><label data-i18n="p_name">Name</label><input id="pName" required><input type="hidden" id="pId"></div>
+          <div class="row"><label data-i18n="p_type">Typ</label><select id="pType"><option value="claude-code">claude-code</option><option value="anthropic">anthropic</option><option value="openai-compatible">openai-compatible</option><option value="gemini">gemini</option><option value="cli">cli</option></select><span id="ptypehint" class="hint"></span></div>
+          <div class="row" data-for="openai-compatible"><label data-i18n="p_templates">Vorlagen</label><span id="ptemplates"></span></div>
+          <div class="row" data-for="claude-code anthropic openai-compatible gemini"><label data-i18n="p_model">Modell</label><input id="pModel"></div>
+          <div class="row" data-for="anthropic openai-compatible gemini"><label data-i18n="p_base">Basis-URL</label><input id="pBase" class="wideinput"></div>
+          <div class="row" data-for="anthropic openai-compatible gemini"><label data-i18n="p_key">API-Key</label><input id="pKey" type="password" autocomplete="off"><span id="pKeyMasked" class="hint"></span><label><input type="checkbox" id="pClearKey"> <span data-i18n="p_clear_key">Key entfernen</span></label></div>
+          <div class="hint" data-for="anthropic openai-compatible gemini" data-i18n="p_key_hint"></div>
+          <div class="row" data-for="cli"><label data-i18n="p_cmd">Kommando</label><input id="pCmd" class="wideinput"></div>
+          <div class="hint" data-for="cli" data-i18n="p_cmd_hint"></div>
+          <div class="row" data-for="anthropic openai-compatible gemini"><label data-i18n="p_temp">Temperatur</label><input id="pTemp" type="number" step="0.1" min="0" max="2"><label data-i18n="p_max">Max. Tokens</label><input id="pMax" type="number" min="1"></div>
+          <div class="row"><button type="submit" class="primary" data-i18n="save">Speichern</button><button type="button" id="bPCancel" data-i18n="cancel">Abbrechen</button><span id="pmsg" class="err"></span></div>
+        </form>
+        <h3 class="grp" data-i18n="p_tasks">Aufgaben</h3>
+        <div class="row"><label data-i18n="t_feedback">Feedback umsetzen</label><select id="tFeedback" data-task="feedback"></select></div>
+        <div class="row"><label data-i18n="t_rate">Stellen bewerten</label><select id="tRate" data-task="rate"></select></div>
+        <div class="row"><label data-i18n="t_draft">Bewerbung entwerfen</label><select id="tDraft" data-task="draft"></select></div>
+        <div class="row"><label data-i18n="t_profile">Profil und Stil vorschlagen</label><select id="tProfile" data-task="profile"></select></div>
+        <div class="row"><label data-i18n="t_learnings">Learnings zusammenfassen</label><select id="tLearnings" data-task="learnings"></select></div>
+        <div class="row"><label data-i18n="t_prepare">Gesprächsvorbereitung</label><select id="tPrepare" data-task="prepare"></select></div>
+        <div class="row"><label data-i18n="t_followup">Nachfass-Mail entwerfen</label><select id="tFollowup" data-task="followup"></select></div>
+        <div class="row"><label data-i18n="t_check">Endkontrolle beim Finalisieren</label><select id="tCheck" data-task="check" data-optional></select></div>
+        <div class="hint" data-i18n="t_check_hint"></div>
+        <div class="row"><label data-i18n="t_facts">Fakten-Check per KI</label><select id="tFacts" data-task="facts" data-optional></select></div>
+        <div class="hint" data-i18n="t_facts_hint"></div>
+        <h3 class="grp" data-i18n="u_title">Verbrauch</h3>
+        <div class="hint" data-i18n="u_hint"></div>
+        <div id="usage"></div>
+      </section>
+      <section data-sec="folder" hidden>
+        <h2 data-i18n="s_folder">Ordner</h2>
+        <div class="hint" data-i18n="s_folder_hint"></div>
+        <div class="row"><input id="rootPath"><button id="bRootApply" class="primary" data-i18n="s_apply">Übernehmen</button><button id="bBrowse" data-i18n="s_browse">Durchsuchen</button></div>
+        <div id="rootErr" class="err"></div>
+        <div id="browser" hidden>
+          <div class="row"><button id="bDirUp" data-i18n="s_up">Nach oben</button><button id="bDirUse" class="primary" data-i18n="s_use">Diesen Ordner nehmen</button></div>
+          <div id="dirs"></div>
+        </div>
+        <h3 class="grp" data-i18n="s_export">Sicherung</h3>
+        <div class="hint" data-i18n="s_export_hint"></div>
+        <div class="row"><a class="btn" id="bExport" href="/api/export" download data-i18n="s_export_btn">Datenordner als ZIP herunterladen</a></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <span id="mode" class="badge"></span>
+    <span id="file"></span>
+    <span id="rules"></span>
+    <span id="chips"></span>
+  </footer>
+</div>
+
+<div id="ghost"></div>
+
+<!-- app.js moves the panels into the zones -->
+<div id="panels" hidden>
+  <section class="panel" data-panel="list">
+    <div class="phead"><span data-i18n="p_list">Liste</span><button id="bNew" class="mini" data-i18n-title="new_app" title="Neue Bewerbung"><svg><use href="#i-plus"/></svg></button><button id="listSort" class="mini" data-i18n-title="sort_title"></button><button id="bArchive" class="mini" data-i18n-title="archive_show_title"><svg><use href="#i-archive"/></svg></button><span class="seg mini" id="listSeg"><button data-lm="list" class="on" data-i18n-title="view_list"><svg><use href="#i-list"/></svg></button><button data-lm="board" data-i18n-title="view_board"><svg><use href="#i-board"/></svg></button></span><button class="pmax" data-i18n-title="max"><svg><use href="#i-max"/></svg></button><button class="phide" data-i18n-title="hide"><svg><use href="#i-close"/></svg></button></div>
+    <div class="pbody"><input id="search" data-i18n-ph="search" placeholder="Suchen (Firma oder Titel)"><nav id="list" tabindex="0"></nav><div id="board" hidden></div><div id="listEmpty" class="empty" hidden><p data-i18n="empty_list"></p><button data-i18n="empty_list_action"></button></div></div>
+  </section>
+  <section class="panel" data-panel="editor">
+    <div class="phead"><span data-i18n="p_editor">Brief</span><button class="pmax" data-i18n-title="max"><svg><use href="#i-max"/></svg></button><button class="phide" data-i18n-title="hide"><svg><use href="#i-close"/></svg></button></div>
+    <div class="pbody"><div id="edwrap"></div><div id="edEmpty" class="empty" hidden><p data-i18n="empty_editor"></p></div></div>
+  </section>
+  <section class="panel" data-panel="feedback">
+    <div class="phead"><span data-i18n="p_feedback">Feedback an Claude</span><button class="pmax" data-i18n-title="max"><svg><use href="#i-max"/></svg></button><button class="phide" data-i18n-title="hide"><svg><use href="#i-close"/></svg></button></div>
+    <div class="pbody"><div class="fbhead"><button id="bApply" title="A" data-i18n="apply">Feedback umsetzen</button><button id="bCancel" data-i18n="cancel" hidden>Abbrechen</button><button id="bFbHist" data-i18n="lr_hist_btn" data-i18n-title="lr_hist">Verlauf</button><button id="bDiff" title="d" data-i18n="diff_title" hidden>Änderung von Claude</button><span id="answer"></span></div><div id="reqs"></div><div id="fb"></div></div>
+  </section>
+  <section class="panel" data-panel="preview">
+    <div class="phead"><span data-i18n="p_preview">Vorschau</span><button class="pmax" data-i18n-title="max"><svg><use href="#i-max"/></svg></button><button class="phide" data-i18n-title="hide"><svg><use href="#i-close"/></svg></button></div>
+    <div class="pbody"><div id="pv" tabindex="0"><article></article></div></div>
+  </section>
+</div>
+
+<div id="setup" class="overlay"><div class="sheet setup-sheet">
+  <img src="/icon.svg" width="56" height="56" alt="">
+  <h2 data-i18n="su_title">Willkommen beim Bewerbungs-Board</h2>
+  <p data-i18n="su_text"></p>
+  <div class="seg" id="setupMode"><button data-m="new" class="on" data-i18n="su_new">Neuen Ordner anlegen</button><button data-m="open" data-i18n="su_open">Vorhandenen Ordner öffnen</button></div>
+  <label class="setup-field"><span data-i18n="su_path">Ordner</span><input id="setupPath" autocomplete="off"></label>
+  <div id="setupNewFields" class="prform">
+    <label><span data-i18n="pr_name">Name</span><input id="setupName" autocomplete="name"></label>
+    <label><span data-i18n="pr_email">E-Mail</span><input id="setupEmail" type="email" autocomplete="email"></label>
+    <label><span data-i18n="pr_town">Ort</span><input id="setupTown"></label>
+  </div>
+  <div id="setupDirs" hidden></div>
+  <p id="setupError" class="err"></p>
+  <div class="btns"><button class="primary" id="setupGo" data-i18n="su_go">Los geht's</button></div>
+</div></div>
+<div id="fbhist" class="overlay"><div class="sheet"></div></div>
+<div id="help" class="overlay"><div class="sheet">
+  <div class="sheethead"><b data-i18n="h_title">Tastatur</b><button class="icon close" data-i18n-title="close"><svg><use href="#i-close"/></svg></button></div>
+  <div class="hgrid">
+    <section><h3 data-i18n="h_list">Liste</h3>
+      <div><kbd>j</kbd><kbd>k</kbd><kbd>gg</kbd><kbd>G</kbd><kbd>&uarr;</kbd><kbd>&darr;</kbd><span data-i18n="h_move"></span></div>
+      <div><kbd>i</kbd><kbd>l</kbd><kbd>Enter</kbd><span data-i18n="h_edit"></span></div>
+      <div><kbd>c</kbd><span data-i18n="h_fb"></span></div>
+      <div><kbd>F</kbd><kbd>S</kbd><kbd>O</kbd><span data-i18n="h_status"></span></div>
+      <div><kbd>A</kbd><span data-i18n="h_apply"></span></div>
+      <div><kbd>o</kbd><kbd>p</kbd><kbd>r</kbd><span data-i18n="h_opr"></span></div>
+      <div><kbd>m</kbd><span data-i18n="h_m"></span></div>
+      <div><kbd>/</kbd><span data-i18n="h_search"></span></div>
+      <div><kbd>z</kbd><span data-i18n="h_z"></span></div>
+      <div><kbd>d</kbd><span data-i18n="h_d"></span></div>
+      <div><kbd>n</kbd><kbd>v</kbd><span data-i18n="h_nv"></span></div>
+    </section>
+    <section><h3 data-i18n="h_editor">Editor (Vim)</h3>
+      <div><kbd>:w</kbd><kbd>:wq</kbd><kbd>:q</kbd><span data-i18n="h_w"></span></div>
+      <div><kbd>:final</kbd><kbd>:sent</kbd><kbd>:offen</kbd><span data-i18n="h_st"></span></div>
+      <div><kbd>:apply</kbd><span data-i18n="h_apply_ex"></span></div>
+      <div><kbd>:n</kbd><kbd>:N</kbd><span data-i18n="h_n"></span></div>
+      <div><kbd>:fb</kbd><kbd>:letter</kbd><span data-i18n="h_fbbr"></span></div>
+      <div><kbd>:e!</kbd><span data-i18n="h_e"></span></div>
+      <div><kbd>:raw</kbd><kbd>:live</kbd><span data-i18n="h_rawlive"></span></div>
+      <div><kbd>:only</kbd><kbd>:diff</kbd><kbd>:settings</kbd><kbd>:jobs</kbd><kbd>:letters</kbd><span data-i18n="h_only"></span></div>
+    </section>
+    <section><h3 data-i18n="h_all">Überall</h3>
+      <div><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd><kbd>gt</kbd><kbd>gT</kbd><span data-i18n="h_tabs"></span></div>
+      <div><kbd>,</kbd><span data-i18n="h_settings"></span></div>
+      <div><kbd>Ctrl K</kbd><kbd>Ctrl P</kbd><kbd>:</kbd><span data-i18n="h_palette"></span></div>
+      <div><kbd>Alt 1</kbd><kbd>Alt 2</kbd><kbd>Alt 3</kbd><span data-i18n="h_alt"></span></div>
+      <div><kbd>Alt h</kbd><kbd>Alt j</kbd><kbd>Alt k</kbd><kbd>Alt l</kbd><span data-i18n="h_hjkl"></span></div>
+      <div><kbd>Ctrl S</kbd><span data-i18n="h_ctrl"></span></div>
+      <div><kbd>Esc</kbd><kbd>q</kbd><span data-i18n="h_back"></span></div>
+      <div><kbd>?</kbd><span data-i18n="h_help"></span></div>
+      <p class="hint" data-i18n="h_drag"></p>
+    </section>
+  </div>
+</div></div>
+
+<div id="newapp" class="overlay"><div class="sheet">
+  <div class="sheethead"><b data-i18n="new_app">Neue Bewerbung</b><button class="icon close" data-i18n-title="close"><svg><use href="#i-close"/></svg></button></div>
+  <p class="hint" data-i18n="new_app_hint"></p>
+  <form id="newForm" class="prform">
+    <label class="wide"><span data-i18n="new_link">Link zur Anzeige</span><input name="url" type="url" placeholder="https://"></label>
+    <label class="wide"><span data-i18n="new_text">Oder den Anzeigentext einfügen</span><textarea name="text" rows="8"></textarea></label>
+    <label><span data-i18n="new_company">Firma (bei jobs.ch und LinkedIn automatisch)</span><input name="company"></label>
+    <label><span data-i18n="new_title">Stelle (optional)</span><input name="title"></label>
+    <label><span data-i18n="new_tone">Ton</span><select name="tone"><option value="" data-i18n="tone_default">wie bisher</option><option value="formal" data-i18n="tone_formal">förmlich</option><option value="warm" data-i18n="tone_warm">herzlich</option><option value="concise" data-i18n="tone_concise">knapp</option></select></label>
+    <div class="wide btns"><span id="newErr" class="err"></span><button type="submit" class="primary" data-i18n="new_go">Entwurf schreiben</button></div>
+  </form>
+</div></div>
+<div id="versions" class="overlay"><div class="sheet">
+  <div class="sheethead"><b data-i18n="versions">Frühere Fassungen</b><button class="icon close" data-i18n-title="close"><svg><use href="#i-close"/></svg></button></div>
+  <p class="hint" data-i18n="versions_hint"></p>
+  <div class="vgrid"><div id="vList"></div><pre id="vDiff"></pre></div>
+  <div class="btns"><button id="bVRestore" class="primary" data-i18n="versions_restore" disabled>In den Editor übernehmen</button></div>
+</div></div>
+<div id="followup" class="overlay"><div class="sheet">
+  <div class="sheethead"><b id="fuTitle" data-i18n="fu_title">Nachfass-Mail</b><button class="icon close" data-i18n-title="close"><svg><use href="#i-close"/></svg></button></div>
+  <div class="prform">
+    <label class="wide"><span data-i18n="fu_to">An</span><input id="fuTo" type="email"></label>
+    <label class="wide"><span data-i18n="fu_subject">Betreff</span><input id="fuSubject"></label>
+    <label class="wide"><span data-i18n="fu_body">Text</span><textarea id="fuBody" rows="12"></textarea></label>
+  </div>
+  <p id="fuFiles" class="hint" hidden></p>
+  <div class="btns"><button id="fuCopy" data-i18n="fu_copy">Kopieren</button><button id="fuNote" data-i18n="fu_note">Als Notiz speichern</button><a id="fuMail" class="btn" data-i18n="fu_mail">Im Mailprogramm öffnen</a><button id="fuTb" class="primary" data-i18n="fu_tb" hidden>In Thunderbird öffnen</button></div>
+</div></div>
+<div id="diff" class="overlay"><div class="sheet">
+  <div class="sheethead"><b data-i18n="diff_title">Änderung von Claude</b><button id="bDiffClose" class="icon close" data-i18n-title="close"><svg><use href="#i-close"/></svg></button></div>
+  <pre id="diffBody"></pre>
+  <div class="btns"><button id="bUndo" data-i18n="undo">Rückgängig</button><button id="bDiffClose2" class="primary" data-i18n="close">Schliessen</button></div>
+</div></div>
+
+<div id="palette" class="overlay"><div class="sheet pal">
+  <input id="palIn" data-i18n-ph="pal_ph" placeholder="Befehl, Bereich oder Firma …" autocomplete="off" spellcheck="false">
+  <div id="palList"></div>
+  <div class="palfoot"><kbd>&uarr;</kbd><kbd>&darr;</kbd><span data-i18n="pal_nav"></span><kbd>Enter</kbd><span data-i18n="pal_run"></span><kbd>Esc</kbd><span data-i18n="close"></span></div>
+</div></div>
+
+<script src="app.js"></script>
+<script src="pipeline.js"></script>
+<script src="learnings.js"></script>
+<script src="profile.js"></script>
+</body>
+</html>

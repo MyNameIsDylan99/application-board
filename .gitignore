@@ -1,0 +1,14 @@
+# local settings and keys, never check in
+settings.json
+secrets.json
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+
+# editor and system
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

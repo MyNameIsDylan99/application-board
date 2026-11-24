@@ -1,0 +1,2 @@
+// theme, accent and rail state from the local cache before the first paint so nothing flickers (no inline script: CSP)
+try{const t=localStorage.getItem("rv-theme");if(t&&t!=="system")document.documentElement.dataset.theme=t;const a=localStorage.getItem("rv-accent");if(a)document.documentElement.style.setProperty("--accent",a);if(localStorage.getItem("rv-rail")==="1")document.documentElement.classList.add("rail-open")}catch{}

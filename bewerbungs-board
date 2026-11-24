@@ -1,0 +1,3 @@
+#!/bin/sh
+# start the board: bewerbungs-board [port] [--open]
+exec python3 "$(dirname "$(readlink -f "$0")")/server.py" "$@"

@@ -1,0 +1,30 @@
+name: test
+# Every push and pull request. Linux: everything, with LibreOffice and Poppler (finalizing) and the browser test.
+# Windows: self-tests and the API test, so path and encoding problems show up.
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: LibreOffice and Poppler for finalizing
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils libreoffice-writer
+      - name: Syntax of the scripts
+        run: for f in *.js tests/*.mjs; do node --check "$f"; done
+      - name: Self-tests, API and browser test
+        run: python tests/run.py --ui
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Self-tests and API test
+        run: python tests/run.py
