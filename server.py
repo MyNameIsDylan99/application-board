@@ -502,7 +502,7 @@ def git_new_or_changed():
     """None when the folder is no git repo: then all letters without an entry count as new."""
     try:
         r = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--others", "--modified", "--exclude-standard", "--", "Bewerbungen"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
     except FileNotFoundError:  # git not installed
         return None
     if r.returncode:

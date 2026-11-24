@@ -113,7 +113,7 @@ def text(root, p):
     t, kind = "", p.suffix.lower()
     try:
         if kind == ".pdf":
-            t = subprocess.run([storage.tool("pdftotext") or "pdftotext", "-layout", str(p), "-"], capture_output=True, text=True, timeout=60).stdout
+            t = subprocess.run([storage.tool("pdftotext") or "pdftotext", "-layout", str(p), "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60).stdout
         elif kind == ".docx":
             t = _xml_text(zipfile.ZipFile(p).read("word/document.xml").decode("utf-8", "ignore"))
         elif kind == ".odt":

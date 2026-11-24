@@ -11,14 +11,15 @@ const [port, chromium] = process.argv.slice(2);
 const base = `http://127.0.0.1:${port}`;
 const profile = mkdtempSync(join(tmpdir(), "bb-chrome-"));
 const debugPort = 9400 + Math.floor(Math.random() * 400);
-const browser = spawn(chromium, ["--headless=new", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, "--no-first-run", "about:blank"], {stdio: "ignore"});
+const browser = spawn(chromium, ["--headless=new", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, "--no-first-run",
+  ...(process.env.CI ? ["--no-sandbox"] : []), "about:blank"], {stdio: "ignore"});  // CI runners (Ubuntu 24.04) block the sandbox
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failed = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "  ok   " : "  FAIL ") + name + (ok ? "" : ": " + detail)); if (!ok) failed++; };
 
 try {
   let tab;
-  for (let i = 0; i < 40 && !tab; i++) { await sleep(250); tab = await fetch(`http://127.0.0.1:${debugPort}/json/new?${base}/`, {method: "PUT"}).then(r => r.json()).catch(() => null); }
+  for (let i = 0; i < 120 && !tab; i++) { await sleep(250); tab = await fetch(`http://127.0.0.1:${debugPort}/json/new?${base}/`, {method: "PUT"}).then(r => r.json()).catch(() => null); }
   const ws = new WebSocket(tab.webSocketDebuggerUrl); let id = 0; const pend = {}; const errs = [];
   ws.onmessage = m => { const d = JSON.parse(m.data); if (d.id && pend[d.id]) { pend[d.id](d.result); delete pend[d.id]; }
     if (d.method === "Runtime.exceptionThrown") errs.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text);

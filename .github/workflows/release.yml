@@ -1,5 +1,5 @@
 name: release
-# Push a tag like v0.4.0: the tests run, then a zip of the app (with a REPO file for the update check) becomes a GitHub release.
+# Push a tag like v0.5.0: the tests run, then a zip of the app (with a REPO file for the update check) becomes a GitHub release.
 on:
   push:
     tags: ["v*"]
@@ -27,4 +27,5 @@ jobs:
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" bewerbungs-board-*.zip* --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md. Unzip, then run ./bewerbungs-board --open (Windows: bewerbungs-board.cmd --open)."
+        run: |
+          gh release create "$GITHUB_REF_NAME" bewerbungs-board-*.zip* --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md. Unzip, then run ./bewerbungs-board --open (Windows: bewerbungs-board.cmd --open, untested so far)."

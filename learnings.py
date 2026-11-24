@@ -161,19 +161,19 @@ if __name__ == "__main__":  # self-test in a temp folder
     tmp = Path(tempfile.mkdtemp())
     apps = tmp / "Bewerbungen"
     (apps / "_Review" / "backups").mkdir(parents=True)
-    (apps / "_Review" / "backups" / "20261110_101500_000001_Firma AG_Bewerbungsschreiben_X.md").write_text("old")
+    (apps / "_Review" / "backups" / "20261110_101500_000001_Firma AG_Bewerbungsschreiben_X.md").write_text("old", "utf-8")
     old = read(apps, {"Bewerbungen/Firma AG/Bewerbungsschreiben_X.md": {"antwort": "I changed X."}})
     assert len(old) == 1 and old[0]["nachgetragen"] and old[0]["ts"].startswith("2026-11-10T10:15"), old
     append(apps, {"path": "p", "firma": "F", "feedback": "shorter", "antwort": "ok"})
     assert [r["feedback"] for r in read(apps)] == ["", "shorter"]
     mem = tmp / "mem"
     mem.mkdir()
-    (mem / "MEMORY.md").write_text("- [Old](feedback_old.md) — x\n")
+    (mem / "MEMORY.md").write_text("- [Old](feedback_old.md) — x\n", "utf-8")
     assert write(mem, [{"file": "feedback_new.md", "name": "New Rule", "title": "New", "description": "when", "body": "Rule.\n\n**Why:** x"},
                        {"file": "feedback_old.md", "title": "Old", "description": "y", "body": "new"}]) == ["feedback_new.md", "feedback_old.md"]
-    idx = (mem / "MEMORY.md").read_text()
+    idx = (mem / "MEMORY.md").read_text("utf-8")
     assert idx.count("feedback_old.md") == 1 and "[New](feedback_new.md) — when" in idx, idx
-    assert "name: new-rule" in (mem / "feedback_new.md").read_text()
+    assert "name: new-rule" in (mem / "feedback_new.md").read_text("utf-8")
     try:
         write(mem, [{"file": "../x.md", "body": "b"}])
         raise AssertionError("the path should have been rejected")

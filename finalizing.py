@@ -7,6 +7,7 @@ issues as hints.
 
 Hints are stored in review.json and shown in the UI, so they are written in the UI language (de/en).
 """
+import os
 import re
 import subprocess
 import sys
@@ -190,13 +191,13 @@ def template(root, prof, kind, lang, exclude_dir):
 
 
 def _pdf_text(pdf):
-    return subprocess.run([storage.tool("pdftotext"), "-layout", str(pdf), "-"], capture_output=True, text=True, check=True).stdout
+    return subprocess.run([storage.tool("pdftotext"), "-layout", str(pdf), "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
 def _pages(pdf):
     if not storage.tool("pdfinfo"):  # count the page breaks of pdftotext instead
         return _pdf_text(pdf).rstrip("\f").count("\f") + 1
-    out = subprocess.run([storage.tool("pdfinfo"), str(pdf)], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run([storage.tool("pdfinfo"), str(pdf)], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
     m = re.search(r"^Pages:\s+(\d+)", out, re.M)
     return int(m.group(1)) if m else 0
 
@@ -295,7 +296,8 @@ def finalize_letter(root, md, provider=None, ui="de"):
     cmd = [sys.executable, str(SCRIPT), md.parent.name, "--md", md.name, "--company-short", short, "--mmyy", mmyy,
            "--repo-root", str(root), "--cl-template", str(cl_template)] + (["--cv-template", str(cv_template)] if cv_template else ["--skip-cv"])
     # without --cv-title: the title in the CV header stays as in the template, never adapted to the job
-    r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=300)
+    r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-1500:] or f"finalize.py exit {r.returncode}")
     files = {f"{k}_{ext}": md.parent / f"{userprofile.file_name(prof, kind, short, mmyy)}.{ext}"

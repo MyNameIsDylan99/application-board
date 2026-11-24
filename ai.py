@@ -65,7 +65,7 @@ def _run(args, inp, timeout, cwd):
     me = threading.get_ident()
     check_cancelled()
     proc = subprocess.Popen(args, stdin=subprocess.PIPE if inp is not None else subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True, cwd=cwd)
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", cwd=cwd)  # UTF-8 also on Windows
     _PROCS[me] = proc
     try:
         out, err = proc.communicate(inp, timeout=timeout)

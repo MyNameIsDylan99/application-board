@@ -72,7 +72,8 @@ RUN = """# Stellensuche 2026-01-02
 - **Luecken:** keine wesentliche
 """
 MOCK = r'''import sys, json, time
-p = sys.stdin.read()
+sys.stdout.reconfigure(encoding="utf-8")  # the board talks UTF-8 with every command, also on Windows
+p = sys.stdin.buffer.read().decode("utf-8")
 open(__file__ + ".log", "a", encoding="utf-8").write("=====\n" + p[:4000] + "\n")
 if "SLOW" in p:
     time.sleep(30)
