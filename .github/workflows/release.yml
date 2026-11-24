@@ -21,8 +21,9 @@ jobs:
         run: |
           name="bewerbungs-board-${GITHUB_REF_NAME}"
           git archive --format=zip --prefix=bewerbungs-board/ -o "$name.zip" HEAD
-          mkdir -p bewerbungs-board && echo "$GITHUB_REPOSITORY" > bewerbungs-board/REPO
-          zip "$name.zip" bewerbungs-board/REPO
+          tmp=$(mktemp -d)  # not in the checkout: there "bewerbungs-board" is the start script
+          mkdir "$tmp/bewerbungs-board" && echo "$GITHUB_REPOSITORY" > "$tmp/bewerbungs-board/REPO"
+          (cd "$tmp" && zip "$GITHUB_WORKSPACE/$name.zip" bewerbungs-board/REPO)
           sha256sum "$name.zip" > "$name.zip.sha256"
       - name: Release
         env:
