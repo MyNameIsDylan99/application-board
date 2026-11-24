@@ -310,11 +310,11 @@ def ics(entries, lang="de"):
     from datetime import datetime, timedelta, timezone
     z = lambda x: re.sub(r"([\\;,])", r"\\\1", str(x)).replace("\n", "\\n")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Bewerbungs-Board//EN", "CALSCALE:GREGORIAN", "X-WR-CALNAME:Bewerbungen"]
+    out = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Application Board//EN", "CALSCALE:GREGORIAN", "X-WR-CALNAME:Bewerbungen"]
     for company, e in entries:
         d = e["date"].replace("-", "")
         uid = re.sub(r"[^A-Za-z0-9]", "", f"{d}{e.get('time', '')}{company}{e.get('title', '')}")[:60]
-        out += ["BEGIN:VEVENT", f"UID:{uid}@bewerbungs-board", f"DTSTAMP:{stamp}"]
+        out += ["BEGIN:VEVENT", f"UID:{uid}@application-board", f"DTSTAMP:{stamp}"]
         if e.get("time"):
             start = datetime.strptime(e["date"] + e["time"], "%Y-%m-%d%H:%M")
             out += [f"DTSTART:{start:%Y%m%dT%H%M%S}", f"DTEND:{start + timedelta(hours=1):%Y%m%dT%H%M%S}"]

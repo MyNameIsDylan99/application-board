@@ -22,6 +22,9 @@ import urllib.request
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1]
+# every process started by the tests gets its own config folder: never the real settings, keys or mail index
+os.environ["APPLICATION_BOARD_CONFIG"] = tempfile.mkdtemp(prefix="application-board-test-config-")
+os.environ.pop("BEWERBUNGS_BOARD_CONFIG", None)
 MODULES = ["storage", "ai", "userprofile", "documents", "templates", "thunderbird", "learnings", "pipeline", "finalizing", "jobsearch"]
 FAILED = []
 
@@ -111,7 +114,7 @@ def self_tests():
     print("self-tests")
     for m in MODULES:
         r = subprocess.run([sys.executable, str(APP / f"{m}.py")], capture_output=True, text=True, cwd=APP,
-                           env={**os.environ, "BEWERBUNGS_BOARD_CONFIG": tempfile.mkdtemp()})
+                           env={**os.environ, "APPLICATION_BOARD_CONFIG": tempfile.mkdtemp()})
         check(m, r.returncode == 0 and r.stdout.strip().endswith("ok"), (r.stdout + r.stderr)[-400:])
 
 
@@ -172,7 +175,7 @@ def api_tests(tmp):
     fake = tmp / "bin" / "thunderbird"
     fake.write_text(f"#!{sys.executable}\nimport sys, json\nopen({str(tmp / 'tb.json')!r}, 'w').write(json.dumps(sys.argv[1:]))\n")
     fake.chmod(0o755)
-    env = {**os.environ, "BEWERBUNGS_BOARD_CONFIG": str(cfg), "HOME": str(tmp / "home"),  # HOME: no real Claude memory, no Thunderbird
+    env = {**os.environ, "APPLICATION_BOARD_CONFIG": str(cfg), "HOME": str(tmp / "home"),  # HOME: no real Claude memory, no Thunderbird
            "PATH": f"{tmp / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"}
     (tmp / "home").mkdir()
     server = subprocess.Popen([sys.executable, str(APP / "server.py"), str(port)], env=env, stdout=open(tmp / "server.log", "w"), stderr=subprocess.STDOUT)
@@ -326,9 +329,9 @@ def mcp_tests(data):
             {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "save_draft", "arguments": {"company": "MCP AG", "content": "# Bewerbungsschreiben\n\nText"}}},
             {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "read_application", "arguments": {"path": "../etc/passwd"}}}]
     r = subprocess.run([sys.executable, str(APP / "mcp_server.py"), str(data)], input="\n".join(json.dumps(m) for m in msgs) + "\n",
-                       capture_output=True, text=True, timeout=30)
+                       capture_output=True, text=True, timeout=30, env={**os.environ, "HOME": tempfile.mkdtemp()})
     out = {m["id"]: m for m in map(json.loads, r.stdout.splitlines())}
-    check("MCP: initialize and tools", out[1]["result"]["serverInfo"]["name"] == "bewerbungs-board" and len(out[2]["result"]["tools"]) == 5 and len(out) == 5, r.stderr[-300:])
+    check("MCP: initialize and tools", out[1]["result"]["serverInfo"]["name"] == "application-board" and len(out[2]["result"]["tools"]) == 5 and len(out) == 5, r.stderr[-300:])
     apps = json.loads(out[3]["result"]["content"][0]["text"])
     check("MCP: list applications", any(x["company"] == "Muster AG" for x in apps), apps)
     check("MCP: save draft, never overwriting", (data / json.loads(out[4]["result"]["content"][0]["text"])["path"]).is_file(), out[4])
@@ -353,7 +356,7 @@ def ui_tests(port, env):
 
 
 if __name__ == "__main__":
-    tmp = Path(tempfile.mkdtemp(prefix="bewerbungs-board-test-"))
+    tmp = Path(tempfile.mkdtemp(prefix="application-board-test-"))
     self_tests()
     port, data, cfg, env = api_tests(tmp)
     if "--ui" in sys.argv:

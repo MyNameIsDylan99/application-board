@@ -2,7 +2,7 @@
 """MCP server (stdio): lets Claude Desktop, Claude Code or another MCP client read the board and save drafts.
 
 Start:  python3 mcp_server.py [data folder]
-        Data folder: the argument, otherwise BEWERBUNGS_ROOT, otherwise the folder stored in the board's settings.
+        Data folder: the argument, otherwise APPLICATION_BOARD_ROOT, otherwise the folder stored in the board's settings.
 
 Tools: list_applications, read_application, read_profile, list_job_results, save_draft. Nothing is sent and nothing
 is deleted; save_draft only creates a new letter file and never overwrites one. JSON-RPC 2.0, one message per line.
@@ -18,15 +18,15 @@ import pipeline
 import storage
 import userprofile
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 LETTER = re.compile(r"^Bewerbungen/[^/]+/Bewerbungsschreiben[^/]*\.md$")
 
 
 def data_root(argv):
     if len(argv) > 1:
         return Path(argv[1]).expanduser().resolve()
-    if os.environ.get("BEWERBUNGS_ROOT"):
-        return Path(os.environ["BEWERBUNGS_ROOT"]).expanduser().resolve()
+    if storage.env("ROOT"):
+        return Path(storage.env("ROOT")).expanduser().resolve()
     try:
         return Path(json.loads(storage.config_file("settings.json").read_text("utf-8"))["root"])
     except (OSError, KeyError, json.JSONDecodeError):
@@ -107,7 +107,7 @@ def handle(root, msg):
         return None
     if method == "initialize":
         result = {"protocolVersion": params.get("protocolVersion") or "2025-06-18", "capabilities": {"tools": {}},
-                  "serverInfo": {"name": "bewerbungs-board", "version": VERSION}}
+                  "serverInfo": {"name": "application-board", "version": VERSION}}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

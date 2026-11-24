@@ -1,10 +1,12 @@
 <p align="center"><img src="icon.svg" width="96" alt=""></p>
 
-# Bewerbungs-Board
+# Application Board
 
 A local tool for job applications that runs in the browser. You can review cover letters and revise them with AI, finalize them as Word and PDF, and search for matching jobs and rate them. After you send an application, the board keeps track of mails, appointments and interview preparation. You choose the AI yourself; nothing is tied to one provider.
 
 Everything stays on your own computer. The server only listens on `127.0.0.1`, and the data is plain Markdown and JSON files in a folder of your own.
+
+Up to version 0.5.0 the app was called Bewerbungs-Board. It started out in German, which is why the file and folder names of the data folder stay German (see below).
 
 <p align="center"><img src="docs/demo.gif" width="820" alt="A tour: letters with requirement chips, a new application, job search results, the Next view, the pipeline with a dossier, statistics"></p>
 
@@ -68,15 +70,15 @@ The interface is in German and English (Settings → General). Your data keeps t
 Download the zip of the newest release from the Releases page and unzip it, or clone the repository. Then:
 
 ```sh
-cd bewerbungs-board
-./bewerbungs-board --open          # Windows: bewerbungs-board.cmd --open
+cd application-board
+./application-board --open          # Windows: application-board.cmd --open
 ```
 
 This is the same as `python3 server.py [port] [--open]`. The board runs at <http://127.0.0.1:8765>; `--open` opens it in the browser.
 
 On the first start, a welcome screen either creates a data folder (from `example/de` or `example/en`, with name, e-mail and town) or opens an existing one. After that, "First steps" in the Profile tab guide you through details, documents, profile text and template.
 
-You can change the folder later under Settings → Folder. Alternatively, set `BEWERBUNGS_ROOT=/path` or start the server from inside the data folder.
+You can change the folder later under Settings → Folder. Alternatively, set `APPLICATION_BOARD_ROOT=/path` or start the server from inside the data folder.
 
 ### Requirements
 
@@ -88,9 +90,9 @@ You can change the folder later under Settings → Folder. Alternatively, set `B
   - [Claude Code](https://claude.com/claude-code) or an API key of another provider
   - Thunderbird, to take over mails
 
-Settings live in `settings.json` and API keys in `secrets.json` (mode 0600) in your config folder: `~/.config/bewerbungs-board` on Linux, `~/Library/Application Support/bewerbungs-board` on macOS, `%APPDATA%\bewerbungs-board` on Windows, or `BEWERBUNGS_BOARD_CONFIG`. Keys can also come from environment variables (`env:NAME`). They never reach the browser.
+Settings live in `settings.json` and API keys in `secrets.json` (mode 0600) in your config folder: `~/.config/application-board` on Linux, `~/Library/Application Support/application-board` on macOS, `%APPDATA%\application-board` on Windows, or `APPLICATION_BOARD_CONFIG`. A config folder of the old name `bewerbungs-board` is moved there on the first start, and the old `BEWERBUNGS_*` variables still work. Keys can also come from environment variables (`env:NAME`). They never reach the browser.
 
-If LibreOffice or Poppler are installed outside the `PATH`, set `BEWERBUNGS_SOFFICE`, `BEWERBUNGS_PDFTOTEXT` and `BEWERBUNGS_PDFINFO` to the programs. Settings → General shows what was found.
+If LibreOffice or Poppler are installed outside the `PATH`, set `APPLICATION_BOARD_SOFFICE`, `APPLICATION_BOARD_PDFTOTEXT` and `APPLICATION_BOARD_PDFINFO` to the programs. Settings → General shows what was found.
 
 ## Security
 
@@ -119,10 +121,10 @@ Never sent: API keys (they stay in `secrets.json` and never reach the browser), 
 `mcp_server.py` is a small MCP server over stdio. A client such as Claude Desktop or Claude Code can then list your applications, read a letter with its log, read your profile, see the newest job search results and save a new draft. It never sends, deletes or overwrites anything.
 
 ```json
-{"mcpServers": {"bewerbungs-board": {"command": "python3", "args": ["/path/to/bewerbungs-board/mcp_server.py", "/path/to/data folder"]}}}
+{"mcpServers": {"application-board": {"command": "python3", "args": ["/path/to/application-board/mcp_server.py", "/path/to/data folder"]}}}
 ```
 
-Without the second argument it uses `BEWERBUNGS_ROOT` or the data folder stored in the board's settings. With Claude Code: `claude mcp add bewerbungs-board -- python3 /path/to/bewerbungs-board/mcp_server.py`.
+Without the second argument it uses `APPLICATION_BOARD_ROOT` or the data folder stored in the board's settings. With Claude Code: `claude mcp add application-board -- python3 /path/to/application-board/mcp_server.py`.
 
 ## Data folder and profile
 
@@ -199,7 +201,7 @@ Tests: `python3 tests/run.py` runs every self-test and an API test against a dem
 ## Limits
 
 - The built-in job search knows jobs.ch (Switzerland) and LinkedIn. LinkedIn is read through its public guest pages without login; this is not an official interface and may break or conflict with LinkedIn's terms of use. You can switch it off under job search settings.
-- Windows is untested so far. The board is developed and used on Linux; the code takes Windows into account (paths, `bewerbungs-board.cmd`, Thunderbird and LibreOffice locations), and the automatic tests run on Windows too, but nobody has used it there for real yet. Please report problems as an issue.
+- Windows is untested so far. The board is developed and used on Linux; the code takes Windows into account (paths, `application-board.cmd`, Thunderbird and LibreOffice locations), and the automatic tests run on Windows too, but nobody has used it there for real yet. Please report problems as an issue.
 - There is no installer: a release is a zip with the start script, and Python 3 has to be installed.
 - The mail search and matching see the last 12 months of each Thunderbird folder (at most 1 GB per folder on the first read). The index is kept in `mailindex.json.gz` in the config folder, so a restart does not read the folders again.
 - The fact check without AI looks at numbers and names only; an invented fact written in plain words needs the optional AI check.

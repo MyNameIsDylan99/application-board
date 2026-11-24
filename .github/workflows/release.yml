@@ -19,14 +19,14 @@ jobs:
         run: python tests/run.py
       - name: Zip
         run: |
-          name="bewerbungs-board-${GITHUB_REF_NAME}"
-          git archive --format=zip --prefix=bewerbungs-board/ -o "$name.zip" HEAD
-          tmp=$(mktemp -d)  # not in the checkout: there "bewerbungs-board" is the start script
-          mkdir "$tmp/bewerbungs-board" && echo "$GITHUB_REPOSITORY" > "$tmp/bewerbungs-board/REPO"
-          (cd "$tmp" && zip "$GITHUB_WORKSPACE/$name.zip" bewerbungs-board/REPO)
+          name="application-board-${GITHUB_REF_NAME}"
+          git archive --format=zip --prefix=application-board/ -o "$name.zip" HEAD
+          tmp=$(mktemp -d)  # not in the checkout: there "application-board" is the start script
+          mkdir "$tmp/application-board" && echo "$GITHUB_REPOSITORY" > "$tmp/application-board/REPO"
+          (cd "$tmp" && zip "$GITHUB_WORKSPACE/$name.zip" application-board/REPO)
           sha256sum "$name.zip" > "$name.zip.sha256"
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" bewerbungs-board-*.zip* --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md. Unzip, then run ./bewerbungs-board --open (Windows: bewerbungs-board.cmd --open, untested so far)."
+          gh release create "$GITHUB_REF_NAME" application-board-*.zip* --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md. Unzip, then run ./application-board --open (Windows: application-board.cmd --open, untested so far)."

@@ -53,7 +53,7 @@ const I18N = {
     // Tabs und Stellensuche
     tab_letters: "Bewerbungen", tab_jobs: "Stellensuche",
     j_runs: "Läufe", j_results: "Ergebnisse", j_config: "Sucheinstellungen", j_run: "Suche starten", j_none: "Kein Lauf vorhanden. Starte eine Suche.",
-    j_filter_text: "Filter (Firma, Titel, Ort)", j_only_new: "nur NEU", su_title: "Willkommen beim Bewerbungs-Board", su_text: "Alles bleibt auf deinem Rechner: deine Bewerbungen, dein Profil und deine Dokumente liegen in einem Ordner deiner Wahl. Leg einen neuen an oder öffne einen vorhandenen.",
+    j_filter_text: "Filter (Firma, Titel, Ort)", j_only_new: "nur NEU", su_title: "Willkommen beim Application Board", su_text: "Alles bleibt auf deinem Rechner: deine Bewerbungen, dein Profil und deine Dokumente liegen in einem Ordner deiner Wahl. Leg einen neuen an oder öffne einen vorhandenen.",
     su_new: "Neuen Ordner anlegen", su_open: "Vorhandenen Ordner öffnen", su_path: "Ordner", su_go: "Los geht's", su_fits: "Dieser Ordner enthält Bewerbungen/ und passt.",
     su_look: "Zum Ordner gehen, der Bewerbungen/ enthält (mit ✓ markiert).", su_welcome: "Willkommen! Fang mit deinen Angaben an; die Schritte oben führen dich durch.",
     fs_title: "Erste Schritte", fs_details: "Angaben eintragen (Name, E-Mail, Kontakt, Foto)", fs_documents: "Dokumente hochladen: alte Lebensläufe, Zeugnisse, Diplome",
@@ -200,7 +200,7 @@ const I18N = {
     h_rawlive: "Raw text or live view", h_only: "Maximize panel, diff, settings, job search, applications", h_alt: "List, letter, feedback", h_hjkl: "Panel to the left, below, above, right", h_ctrl: "save", h_help: "this help",
     tab_letters: "Applications", tab_jobs: "Job search",
     j_runs: "Runs", j_results: "Results", j_config: "Search settings", j_run: "Start search", j_none: "No run yet. Start a search.",
-    j_filter_text: "Filter (company, title, place)", j_only_new: "new only", su_title: "Welcome to Bewerbungs-Board", su_text: "Everything stays on your computer: your applications, profile and documents live in a folder of your choice. Create a new one or open an existing one.",
+    j_filter_text: "Filter (company, title, place)", j_only_new: "new only", su_title: "Welcome to Application Board", su_text: "Everything stays on your computer: your applications, profile and documents live in a folder of your choice. Create a new one or open an existing one.",
     su_new: "Create new folder", su_open: "Open existing folder", su_path: "Folder", su_go: "Let's go", su_fits: "This folder contains Bewerbungen/ and works.",
     su_look: "Go to the folder that contains Bewerbungen/ (marked with ✓).", su_welcome: "Welcome! Start with your details; the steps at the top guide you.",
     fs_title: "First steps", fs_details: "Enter your details (name, e-mail, contact, photo)", fs_documents: "Upload documents: old CVs, certificates, diplomas",

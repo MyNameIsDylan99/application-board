@@ -1,9 +1,9 @@
 """Small file helpers shared by the modules: config folder, atomic writes, backups and versions of a file.
 
 Settings and keys live outside the app folder so the app can be installed read only:
-BEWERBUNGS_BOARD_CONFIG, otherwise %APPDATA%\\bewerbungs-board (Windows), ~/Library/Application Support/bewerbungs-board
-(macOS) or $XDG_CONFIG_HOME/bewerbungs-board (default ~/.config/bewerbungs-board). Files from the old place next to
-the code are moved there once.
+APPLICATION_BOARD_CONFIG, otherwise %APPDATA%\\application-board (Windows), ~/Library/Application Support/application-board
+(macOS) or $XDG_CONFIG_HOME/application-board (default ~/.config/application-board). The folder of the old name
+"bewerbungs-board" and files from the old place next to the code are moved there once.
 """
 import os
 import re
@@ -16,26 +16,40 @@ APP_DIR = Path(__file__).resolve().parent
 BACKUP_NAME = re.compile(r"^(\d{8})_(\d{6})_\d+_(.+)$")
 
 
+NAME, OLD_NAME = "application-board", "bewerbungs-board"  # the app was called Bewerbungs-Board up to 0.5.0
+OLD_ENV = {"ROOT": "BEWERBUNGS_ROOT", "CONFIG": "BEWERBUNGS_BOARD_CONFIG"}  # others: BEWERBUNGS_<KEY>
+
+
+def env(key):
+    """APPLICATION_BOARD_<KEY>, or the variable of the old name (BEWERBUNGS_ROOT, BEWERBUNGS_BOARD_CONFIG, ...)."""
+    return os.environ.get("APPLICATION_BOARD_" + key) or os.environ.get(OLD_ENV.get(key, "BEWERBUNGS_" + key)) or ""
+
+
 def config_dir():
-    if os.environ.get("BEWERBUNGS_BOARD_CONFIG"):
-        d = Path(os.environ["BEWERBUNGS_BOARD_CONFIG"]).expanduser()
-    elif sys.platform == "win32":
-        d = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "bewerbungs-board"
-    elif sys.platform == "darwin":
-        d = Path.home() / "Library" / "Application Support" / "bewerbungs-board"
+    if env("CONFIG"):
+        d = Path(env("CONFIG")).expanduser()
     else:
-        d = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "bewerbungs-board"
+        if sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+        elif sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support"
+        else:
+            base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        d, old = base / NAME, base / OLD_NAME
+        if old.is_dir() and not d.exists():  # settings, keys, usage and mail index of the old name come along
+            shutil.move(str(old), str(d))
+            print(f"Settings moved from {old} to {d}", file=sys.stderr)  # stderr: stdout is the protocol of the MCP server
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def config_file(name):
     """Path of a config file; an old copy next to the code is moved over once (keeps its 0600 mode). Only into the
-    default folder: with BEWERBUNGS_BOARD_CONFIG (tests, a second setup) the files next to the code stay untouched."""
+    default folder: with APPLICATION_BOARD_CONFIG (tests, a second setup) the files next to the code stay untouched."""
     p, old = config_dir() / name, APP_DIR / name
-    if not os.environ.get("BEWERBUNGS_BOARD_CONFIG") and old.is_file() and not p.exists() and old.resolve() != p.resolve():
+    if not env("CONFIG") and old.is_file() and not p.exists() and old.resolve() != p.resolve():
         shutil.move(str(old), str(p))
-        print(f"{name} moved to {p}")
+        print(f"{name} moved to {p}", file=sys.stderr)
     return p
 
 
@@ -48,8 +62,8 @@ TOOL_PLACES = {  # where installers put the tools when they are not on PATH (Win
 
 
 def tool(name):
-    """Full path of a helper program (soffice, pdftotext, pdfinfo) or None. The env variable BEWERBUNGS_<NAME> wins."""
-    own = os.environ.get("BEWERBUNGS_" + name.upper())
+    """Full path of a helper program (soffice, pdftotext, pdfinfo) or None. The env variable APPLICATION_BOARD_<NAME> wins."""
+    own = env(name.upper())
     if own:
         return own
     found = shutil.which(name) or (shutil.which("libreoffice") if name == "soffice" else None)
@@ -116,7 +130,7 @@ def version_text(apps, p, name):
 if __name__ == "__main__":  # self-test in a temp folder
     import tempfile
     tmp = Path(tempfile.mkdtemp())
-    os.environ["BEWERBUNGS_BOARD_CONFIG"] = str(tmp / "cfg")
+    os.environ["APPLICATION_BOARD_CONFIG"] = str(tmp / "cfg")
     assert config_dir() == tmp / "cfg" and config_dir().is_dir()
     letter = tmp / "Bewerbungen" / "Firma AG" / "Bewerbungsschreiben_X.md"
     letter.parent.mkdir(parents=True)
@@ -135,4 +149,14 @@ if __name__ == "__main__":  # self-test in a temp folder
     (tmp / "Bewerbungen" / "other.md").write_text("x")
     write_atomic(letter, "three")
     assert changed_since(tmp, snap, {"Bewerbungen/Firma AG/Bewerbungsschreiben_X.md"}) == ["Bewerbungen/other.md"]
+    os.environ["BEWERBUNGS_ROOT"] = "/old"  # variables of the old name still work, the new one wins
+    assert env("ROOT") == "/old"
+    os.environ["APPLICATION_BOARD_ROOT"] = "/new"
+    assert env("ROOT") == "/new"
+    if sys.platform not in ("win32", "darwin"):  # the config folder of the old name moves over once
+        del os.environ["APPLICATION_BOARD_CONFIG"]
+        os.environ["XDG_CONFIG_HOME"] = str(tmp / "xdg")
+        (tmp / "xdg" / OLD_NAME).mkdir(parents=True)
+        (tmp / "xdg" / OLD_NAME / "secrets.json").write_text("{}", "utf-8")
+        assert config_dir() == tmp / "xdg" / NAME and (tmp / "xdg" / NAME / "secrets.json").is_file() and not (tmp / "xdg" / OLD_NAME).exists()
     print("ok")

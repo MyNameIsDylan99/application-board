@@ -2,7 +2,7 @@
 """Fictional demo data for screenshots and the README GIF: python3 tests/demo.py <empty folder>
 
 Everything here is made up (Lena Beispiel, the companies, the mails). Then start a board on it with its own config folder:
-  BEWERBUNGS_BOARD_CONFIG=$(mktemp -d) BEWERBUNGS_ROOT=<folder> HOME=$(mktemp -d) python3 server.py 8899
+  APPLICATION_BOARD_CONFIG=$(mktemp -d) APPLICATION_BOARD_ROOT=<folder> HOME=$(mktemp -d) python3 server.py 8899
 and run  node tests/screenshots.mjs 8899 chromium docs/screenshots
 """
 import json

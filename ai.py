@@ -25,7 +25,7 @@ _CANCELLED = set()  # thread ids whose job was cancelled
 TYPES = ("claude-code", "anthropic", "openai-compatible", "gemini", "cli")
 DEFAULT_BASE = {"anthropic": "https://api.anthropic.com", "gemini": "https://generativelanguage.googleapis.com",
                 "openai-compatible": "https://api.openai.com/v1"}
-UA = "Bewerbungs-Board/1.0"
+UA = "Application-Board/1.0"
 
 
 class AIError(Exception):

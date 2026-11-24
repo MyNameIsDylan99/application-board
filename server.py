@@ -2,7 +2,7 @@
 """Local board for open cover letters.
 
 Start:  python3 server.py [port] [--open]   (then http://127.0.0.1:8765; --open opens the browser)
-        Data folder: the one stored in the settings, otherwise BEWERBUNGS_ROOT, otherwise the current directory.
+        Data folder: the one stored in the settings, otherwise APPLICATION_BOARD_ROOT, otherwise the current directory.
         It must contain a subfolder Bewerbungen/.
 
 Status and feedback live in <root>/Bewerbungen/_Review/review.json (stored keys stay German, see STORED),
@@ -41,13 +41,13 @@ import templates
 import thunderbird
 import userprofile
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 DIR = Path(__file__).resolve().parent
 SETTINGS = storage.config_file("settings.json")
 STATIC = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/i18n.js": "i18n.js", "/boot.js": "boot.js", "/pipeline.js": "pipeline.js",
           "/learnings.js": "learnings.js", "/profile.js": "profile.js", "/icon.svg": "icon.svg"}
 VENDOR = DIR / "vendor"  # CodeMirror, marked, DOMPurify and the fonts, stored locally (no CDN)
-DEFAULT_ROOT = Path(os.environ.get("BEWERBUNGS_ROOT") or Path.cwd())  # app and data live in separate folders
+DEFAULT_ROOT = Path(storage.env("ROOT") or Path.cwd())  # app and data live in separate folders
 ROOT = APPS = STATE = None  # set by set_root
 STATUSES = ("offen", "final", "abgeschickt", "archiv")  # stored values in review.json
 THEME_RE = re.compile(r"[a-z0-9-]{1,40}")  # the list of themes lives in app.js/app.css, only the format here
@@ -986,7 +986,7 @@ def get_update(q, _):
         return {"enabled": True, "current": VERSION, "error": "no repository known"}
     if time.time() - UPDATE["ts"] > 6 * 3600:
         try:
-            req = urllib.request.Request(f"https://api.github.com/repos/{slug}/releases/latest", headers={"User-Agent": f"Bewerbungs-Board/{VERSION}"})
+            req = urllib.request.Request(f"https://api.github.com/repos/{slug}/releases/latest", headers={"User-Agent": f"Application-Board/{VERSION}"})
             with urllib.request.urlopen(req, timeout=8) as r:
                 j = json.loads(r.read())
             UPDATE["value"] = {"latest": j.get("tag_name", ""), "url": j.get("html_url", "")}
@@ -1427,7 +1427,7 @@ def main(argv=None):
     threading.Thread(target=daily_search, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}"
-    print(f"Bewerbungs-Board {VERSION}: {url}  Folder: {ROOT or '(none yet)'}  Settings: {storage.config_dir()}  (Ctrl+C quits)")
+    print(f"Application Board {VERSION}: {url}  Folder: {ROOT or '(none yet)'}  Settings: {storage.config_dir()}  (Ctrl+C quits)")
     if open_browser:
         threading.Timer(0.5, webbrowser.open, (url,)).start()
     try:

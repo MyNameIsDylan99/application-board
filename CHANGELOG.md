@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- New name: Application Board (was Bewerbungs-Board). Start scripts `application-board` and `application-board.cmd`, config folder `application-board` (the old folder moves over on the first start), variables `APPLICATION_BOARD_ROOT`, `APPLICATION_BOARD_CONFIG`, `APPLICATION_BOARD_SOFFICE` and so on (the old `BEWERBUNGS_*` names still work), MCP server name `application-board`. The data folder and its file names stay as they are.
+
 ## 0.5.0
 
 - Pipeline column "No reply": applications without any activity for 30 days (sent or answered, no date ahead) move there by themselves, with a status entry in the log. Dragging one back counts as activity.

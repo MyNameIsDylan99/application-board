@@ -415,7 +415,7 @@ def convert_to_pdf(docx_path: Path, out_dir: Path) -> Path:
     # own profile, otherwise soffice does nothing while LibreOffice is already open
     soffice = storage.tool("soffice")
     if not soffice:
-        raise RuntimeError("LibreOffice (soffice) not found; install it or set BEWERBUNGS_SOFFICE to its path")
+        raise RuntimeError("LibreOffice (soffice) not found; install it or set APPLICATION_BOARD_SOFFICE to its path")
     with tempfile.TemporaryDirectory(prefix="finalize_lo_") as profile:
         subprocess.run(
             [soffice, f"-env:UserInstallation={Path(profile).as_uri()}", "--headless",

@@ -30,7 +30,7 @@ They come from made-up demo data, never from real applications:
 
 ```sh
 python3 tests/demo.py /tmp/demo
-BEWERBUNGS_BOARD_CONFIG=$(mktemp -d) BEWERBUNGS_ROOT=/tmp/demo HOME=$(mktemp -d) python3 server.py 8899 &
+APPLICATION_BOARD_CONFIG=$(mktemp -d) APPLICATION_BOARD_ROOT=/tmp/demo HOME=$(mktemp -d) python3 server.py 8899 &
 node tests/screenshots.mjs 8899 chromium /tmp/shots
 magick -delay 260 -loop 0 /tmp/shots/{letters,new,jobsearch,next,pipeline,statistics}.png -resize 960x -colors 96 -layers Optimize docs/demo.gif
 ```
