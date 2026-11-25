@@ -1,11 +1,10 @@
-"""Job search for the board: configuration, parser of the result files, built-in pipeline (jobs.ch, LinkedIn
-guest API, rating by an AI provider) and drafting an application from a posting.
+"""Job search for the board: configuration, parser of the result files, built-in pipeline (sources.py, prefilter,
+rating by an AI provider) and drafting an application from a posting.
 
 Files live in applications/_jobsearch/ (search.json, jobsearch_<date>.md, history.jsonl, postings.json); folders of the
 German layout keep their names and German keys (see layout.py). Result files are read in German and English and new
-ones are written in the UI language. The base URLs of the sources can be overridden for tests only (RV_JOBS_BASE, RV_LINKEDIN_BASE, RV_PAUSE).
+ones are written in the UI language. RV_PAUSE (seconds between requests) is for tests only.
 """
-import html
 import json
 import math
 import os
@@ -13,8 +12,6 @@ import re
 import threading
 import time
 import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import date, datetime
 
 import hashlib
@@ -22,12 +19,11 @@ import hashlib
 import ai
 import job_history
 import layout
+import sources
 import storage
 import userprofile
+from sources import norm as _norm, strip_html
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
-JOBS_BASE = os.environ.get("RV_JOBS_BASE", "https://www.jobs.ch")
-LI_BASE = os.environ.get("RV_LINKEDIN_BASE", "https://www.linkedin.com")
 PAUSE = float(os.environ.get("RV_PAUSE", "2.5"))
 MAX_DETAILS = 60
 RUN = {"state": "idle", "log": [], "n": {}, "file": "", "mode": ""}
@@ -79,7 +75,7 @@ def default_config(root):
     m = re.search(r"## (?:Notenraster|Grading scale)\n(.*?)\n## ", rating, re.S)
     scale = m.group(1).strip() if m else "A direct fit, B worth a look, C borderline. When in doubt, one grade lower."
     return {"fields": fields, "places": places, "centers": [], "radius_km": 60, "remote": True, "max_age_days": 30, "target_min": 15, "target_max": 25,
-            "sources": {"jobs_ch": True, "linkedin": True}, "linkedin_places": ["Schweiz"], "exclude": [],
+            "sources": {"jobs_ch": True, "linkedin": True}, "custom_sources": [], "pages": 1, "linkedin_places": ["Schweiz"], "remote_places": [], "exclude": [],
             "scale": scale, "provider": "", "hidden": [], "max_details": MAX_DETAILS,
             "companies": [], "auto": False, "auto_hour": 8}
 
@@ -89,6 +85,27 @@ def load_config(root):
     saved = layout.get(root).read_json("search_config", {})
     cfg.update({k: v for k, v in saved.items() if k in cfg})
     return cfg
+
+
+def check_config(cfg):
+    """Checks what the person entered for sources and companies; ValueError with the line that does not fit."""
+    cfg["sources"] = {k: bool(v) for k, v in cfg["sources"].items() if k in sources.BY_ID}
+    cfg["pages"] = min(sources.MAX_PAGES, max(1, int(cfg.get("pages") or 1)))
+    cfg["companies"] = [sources.company_line(x) for x in cfg.get("companies") or [] if x.strip()]
+    ids, own = set(), []
+    for s in cfg.get("custom_sources") or []:
+        s = sources.clean_custom(s)
+        base, n = s["id"], 2
+        while s["id"] in ids:
+            s["id"], n = f"{base}_{n}", n + 1
+        ids.add(s["id"])
+        own.append(s)
+    cfg["custom_sources"] = own
+    return cfg
+
+
+def terms_of(cfg):
+    return [(f["name"], b) for f in cfg["fields"] if f.get("on") for b in f.get("terms", []) if b.strip()]
 
 
 def save_config(root, cfg):
@@ -140,98 +157,22 @@ def parse_job(grade, block):
     return job
 
 
-# ---------- Sources ----------
-
-def get(url, timeout=25):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json, text/html;q=0.9, */*;q=0.8", "Accept-Language": "de-CH,de;q=0.9,en;q=0.8"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode("utf-8", "replace")
-
-
-def strip_html(s):
-    s = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", s, flags=re.S | re.I)
-    s = re.sub(r"<br\s*/?>|</p>|</div>|</li>|</h\d>|</tr>", "\n", s, flags=re.I)
-    s = re.sub(r"<[^>]+>", " ", s)
-    s = html.unescape(s)
-    return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n\n", s)).strip()
-
-
-def jobs_search(term, days, page=1):
-    q = urllib.parse.urlencode({"query": term, "rows": 20, "page": page, "publication_date": days})
-    d = json.loads(get(f"{JOBS_BASE}/api/v1/public/search?{q}"))
-    out = []
-    for j in d.get("documents", []):
-        coords = j.get("coordinates") or {}
-        out.append({"source": "jobs.ch", "id": j.get("job_id", ""), "title": j.get("title", ""), "company": j.get("company_name", ""),
-                    "place": j.get("place", ""), "age": int(j.get("age") or 0), "lat": coords.get("lat"), "lon": coords.get("lon"),
-                    "url": ((j.get("_links") or {}).get("detail_de") or {}).get("href") or f"https://www.jobs.ch/de/stellenangebote/detail/{j.get('job_id', '')}/"})
-    return out, int(d.get("num_pages") or 1)
-
-
-def jobs_detail(id_):
-    d = json.loads(get(f"{JOBS_BASE}/api/v1/public/search/job/{id_}"))
-    if d.get("is_active") is False:
-        raise ValueError("posting no longer active")
-    end = d.get("publication_end_date") or ""
-    if end and end < date.today().isoformat():
-        raise ValueError(f"deadline passed ({end})")
-    text = strip_html(d.get("template_text") or d.get("template") or "")
-    meta = (f"Title: {d.get('title', '')}\nCompany: {d.get('company_name', '')}\nPlace: {d.get('place', '')}\n"
-            f"Published: {str(d.get('publication_date', ''))[:10]}, deadline: {end}\nWorkload: {d.get('employment_grades', '')}\n\n")
-    return meta + text, {"title": d.get("title"), "company": d.get("company_name"), "place": d.get("place"), "deadline": end}
-
-
-def li_search(term, place, days, start=0):
-    q = urllib.parse.urlencode({"keywords": term, "location": place, "f_TPR": f"r{days * 86400}", "start": start})
-    page = get(f"{LI_BASE}/jobs-guest/jobs/api/seeMoreJobPostings/search?{q}")
-    out = []
-    for card in re.split(r"<li\b", page)[1:]:
-        m = re.search(r"urn:li:jobPosting:(\d+)", card) or re.search(r"/jobs/view/[^\"'?]*?(\d{6,})", card)
-        if not m:
-            continue
-        jid = m.group(1)
-        t = re.search(r'class="[^"]*base-search-card__title[^"]*"[^>]*>(.*?)</h3>', card, re.S)
-        c = re.search(r'class="[^"]*base-search-card__subtitle[^"]*"[^>]*>(.*?)</h4>', card, re.S)
-        o = re.search(r'class="[^"]*job-search-card__location[^"]*"[^>]*>(.*?)</span>', card, re.S)
-        dt = re.search(r'datetime="(\d{4}-\d{2}-\d{2})"', card)
-        age = (date.today() - date.fromisoformat(dt.group(1))).days if dt else 0
-        out.append({"source": "LinkedIn", "id": jid, "title": strip_html(t.group(1)) if t else "", "company": strip_html(c.group(1)) if c else "",
-                    "place": strip_html(o.group(1)) if o else "", "age": age, "lat": None, "lon": None, "url": f"https://www.linkedin.com/jobs/view/{jid}"})
-    return out
-
-
-def li_detail(id_):
-    page = get(f"{LI_BASE}/jobs-guest/jobs/api/jobPosting/{id_}")
-    if re.search(r"no longer accepting applications|nimmt keine Bewerbungen mehr", page, re.I):
-        raise ValueError("posting no longer accepts applications")
-    t = re.search(r'class="[^"]*top-card-layout__title[^"]*"[^>]*>(.*?)</h\d>', page, re.S)
-    c = re.search(r'class="[^"]*topcard__org-name-link[^"]*"[^>]*>(.*?)</a>', page, re.S)
-    o = re.search(r'class="[^"]*topcard__flavor--bullet[^"]*"[^>]*>(.*?)</span>', page, re.S)
-    d = re.search(r'class="[^"]*show-more-less-html__markup[^"]*"[^>]*>(.*?)</div>', page, re.S)
-    meta = {"title": strip_html(t.group(1)) if t else None, "company": strip_html(c.group(1)) if c else None, "place": strip_html(o.group(1)) if o else None}
-    body = strip_html(d.group(1) if d else page)
-    return f"Title: {meta['title'] or ''}\nCompany: {meta['company'] or ''}\nPlace: {meta['place'] or ''}\n\n" + body, meta
-
+# ---------- Posting still open? ----------
 
 CLOSED = re.compile(r"no longer (?:accepting applications|available|active)|position has been filled|job (?:has )?expired|nicht mehr (?:verf[uü]gbar|aktiv|online)|"
                     r"bereits besetzt|inserat ist abgelaufen|stelle ist (?:leider )?(?:nicht mehr|bereits)|nimmt keine Bewerbungen mehr", re.I)
 
 
 def still_open(url):
-    """("open" | "gone" | "unknown", reason). jobs.ch and LinkedIn through their APIs, other pages by HTTP status
+    """("open" | "gone" | "unknown", reason). the portals through their APIs, other pages by HTTP status
     and the usual "no longer available" phrases. "unknown": the page could not be read (network, blocked)."""
     try:
-        m = re.search(r"jobs\.ch/.*?/detail/([0-9a-f-]{36})", url) or re.search(r"jobs\.ch/.*?[?&]jobid=([0-9a-f-]{36})", url, re.I)
-        if m:
-            jobs_detail(m.group(1))
-        elif re.search(r"linkedin\.com/jobs/view/(?:[^/?]*?-)?(\d{6,})", url):
-            li_detail(re.search(r"linkedin\.com/jobs/view/(?:[^/?]*?-)?(\d{6,})", url).group(1))
-        else:
-            m = CLOSED.search(strip_html(get(url))[:200000])
+        if sources.portal_detail(url) is None:
+            m = CLOSED.search(strip_html(sources.get(url))[:200000])
             if m:
                 return "gone", m.group(0)
         return "open", ""
-    except ValueError as e:
+    except sources.Closed as e:
         return "gone", str(e)
     except urllib.error.HTTPError as e:
         return ("gone", f"HTTP {e.code}") if e.code in (404, 410) else ("unknown", f"HTTP {e.code}")
@@ -268,72 +209,8 @@ def statuses(root):
     return layout.get(root).read_json("postings", {})
 
 
-# ---------- Company job feeds (public ATS APIs, no login) ----------
-# A watched company is a line "<ats>:<slug> [name]" in search.json under "companies", e.g. "greenhouse:acme Acme Ltd".
-ATS = {"personio": "https://{slug}.jobs.personio.de/xml", "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true",
-       "lever": "https://api.lever.co/v0/postings/{slug}?mode=json", "smartrecruiters": "https://api.smartrecruiters.com/v1/companies/{slug}/postings?limit=100"}
-ATS_LINE = re.compile(r"\s*(personio|greenhouse|lever|smartrecruiters):([A-Za-z0-9._-]+)\s*(.*)$")
-
-
-def _age(iso):
-    try:
-        return max(0, (date.today() - date.fromisoformat(str(iso)[:10])).days)
-    except ValueError:
-        return 0
-
-
-def ats_parse(kind, slug, raw, company=""):
-    """Raw answer of an ATS feed -> candidates (with the posting text where the feed has it)."""
-    company = company or slug
-    out = []
-    if kind == "personio":
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(re.sub(r"<!DOCTYPE[^\[>]*(\[.*?\])?\s*>", "", raw, flags=re.S))  # no entities from a foreign feed
-        for pos in root.iter("position"):
-            g = lambda k: (pos.findtext(k) or "").strip()
-            desc = "\n\n".join(f"{d.findtext('name') or ''}\n{strip_html(d.findtext('value') or '')}" for d in pos.iter("jobDescription"))
-            out.append({"id": g("id"), "title": g("name"), "place": g("office"), "age": _age(g("createdAt")),
-                        "url": f"https://{slug}.jobs.personio.de/job/{g('id')}", "text": desc, "company": g("subcompany") or company})
-    elif kind == "greenhouse":
-        for j in json.loads(raw).get("jobs", []):
-            out.append({"id": str(j.get("id", "")), "title": j.get("title", ""), "place": (j.get("location") or {}).get("name", ""),
-                        "age": _age(j.get("first_published") or j.get("updated_at") or ""), "url": j.get("absolute_url", ""),
-                        "text": strip_html(html.unescape(j.get("content") or "")), "company": company})
-    elif kind == "lever":
-        for j in json.loads(raw):
-            lists = "\n\n".join(f"{x.get('text', '')}\n{strip_html(x.get('content', ''))}" for x in j.get("lists") or [])
-            created = j.get("createdAt")
-            out.append({"id": j.get("id", ""), "title": j.get("text", ""), "place": (j.get("categories") or {}).get("location", ""),
-                        "age": (date.today() - date.fromtimestamp(created / 1000)).days if created else 0, "url": j.get("hostedUrl", ""),
-                        "text": (j.get("descriptionPlain") or "") + "\n\n" + lists, "company": company})
-    elif kind == "smartrecruiters":
-        for j in json.loads(raw).get("content", []):
-            loc = j.get("location") or {}
-            out.append({"id": j.get("id", ""), "title": j.get("name", ""), "age": _age(j.get("releasedDate") or ""),
-                        "place": ", ".join(x for x in (loc.get("city"), loc.get("country"), "Remote" if loc.get("remote") else "") if x),
-                        "url": f"https://jobs.smartrecruiters.com/{slug}/{j.get('id', '')}", "text": "", "slug": slug,
-                        "company": (j.get("company") or {}).get("name") or company})
-    for c in out:
-        c.update(source=kind, lat=None, lon=None)
-    return out
-
-
-def sr_detail(c):
-    d = json.loads(get(f"https://api.smartrecruiters.com/v1/companies/{c['slug']}/postings/{c['id']}"))
-    sections = (d.get("jobAd") or {}).get("sections") or {}
-    return "\n\n".join(f"{v.get('title', '')}\n{strip_html(v.get('text', ''))}" for v in sections.values() if isinstance(v, dict))
-
-
-def term_match(title, terms):
-    """Does a title fit one of the search terms (all words of the term in the title, accents and case ignored)?"""
-    t = _norm(title)
-    return any(all(w in t for w in _norm(term).split()) for term in terms if term.strip())
-
-
 # ---------- Prefilter ----------
 
-def _norm(s):
-    return s.lower().replace("ü", "ue").replace("ö", "oe").replace("ä", "ae").replace("é", "e")
 
 
 LEGAL = re.compile(r"\b(?:ag|gmbh|sa|sagl|ltd|inc|llc|kg|se|plc|co|schweiz|switzerland|suisse)\b")
@@ -352,10 +229,18 @@ def km(lat1, lon1, lat2, lon2):
     return 12742 * math.asin(math.sqrt(a))
 
 
+REMOTE = re.compile(r"remote|homeoffice|home office|ortsunabh\w*|worldwide|anywhere(?: in the world)?|weltweit")
+
+
 def region_ok(c, cfg):
-    place = _norm(c.get("place") or "")
-    if cfg.get("remote") and re.search(r"remote|homeoffice|home office|ortsunabh", place):
-        return True
+    if c.get("kind") in ("feed", "ats") and not c.get("place"):
+        return True  # decided once the posting is read
+    place = _norm(c.get("region") or c.get("place") or "")
+    if cfg.get("remote") and REMOTE.search(place):
+        where = [_norm(x) for x in cfg.get("remote_places") or [] if x.strip()]
+        rest = re.sub(r"[^a-z]+", " ", REMOTE.sub(" ", place)).strip()
+        if not where or not rest or any(re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", place) for w in where):
+            return True
     if c.get("lat") and c.get("lon"):
         centers = [(z["lat"], z["lon"]) for z in cfg.get("centers", []) if "lat" in z and "lon" in z]
         if centers:  # radius around the own centers (coordinates in search.json)
@@ -490,10 +375,10 @@ def _run_safe(root, provider, mode, lang):
 
 def constraints(cfg):
     fields = [f["name"] for f in cfg["fields"] if f.get("on")]
-    sources = [k for k, v in cfg["sources"].items() if v]
+    names = [x["name"] for x in sources.active(cfg)]
     return (f"Fields: {', '.join(fields)}. Regions: {', '.join(cfg['places'][:8])} (radius about {cfg['radius_km']} km), "
             f"remote {'yes' if cfg['remote'] else 'no'}. Freshness: {cfg['max_age_days']} days. Target: {cfg['target_min']} to {cfg['target_max']} jobs. "
-            f"Sources: {', '.join(sources)}. Excluded in the title: {', '.join(cfg['exclude'])}.")
+            f"Sources: {', '.join(names)}. Excluded in the title: {', '.join(cfg['exclude'])}.")
 
 
 def _run_claude(root):
@@ -549,70 +434,15 @@ def _run(root, provider, lang="de"):
         candidates.append(c)
         RUN["n"]["found"] += 1
 
-    terms = [(f["name"], b) for f in cfg["fields"] if f.get("on") for b in f.get("terms", [])]
+    terms = terms_of(cfg)
     log(f"{len(terms)} search terms, freshness {days} days, radius {cfg.get('radius_km')} km")
-    if cfg["sources"].get("jobs_ch"):
-        errors = 0
-        for field, term in terms:
-            if _stop.is_set():
-                break
-            try:
-                res, _ = jobs_search(term, days)
-                for c in res:
-                    c["field"] = field
-                    add(c)
-                log(f"jobs.ch '{term}': {len(res)} hits")
-            except Exception as e:
-                errors += 1
-                log(f"jobs.ch '{term}': error {e}")
-                if errors >= 3:
-                    log("jobs.ch: too many errors, source skipped")
-                    break
-            time.sleep(PAUSE / 5)
-        source_notes.append(f"jobs.ch ({len([c for c in candidates if c['source'] == 'jobs.ch'])})" + (" (partly failed)" if errors else ""))
-    if cfg["sources"].get("linkedin") and not _stop.is_set():
-        throttled, places = 0, ([p for p in cfg.get("linkedin_places") or ["Schweiz"] if p] + (["Remote"] if cfg.get("remote") else []))
-        for field, term in terms:
-            for place in places:
-                if _stop.is_set() or throttled >= 3:
-                    break
-                try:
-                    res = li_search(term, place, days)
-                    for c in res:
-                        c["field"] = field
-                        add(c)
-                    log(f"LinkedIn '{term}' {place}: {len(res)} hits")
-                    throttled = 0
-                except urllib.error.HTTPError as e:
-                    if e.code == 429:
-                        throttled += 1
-                        log(f"LinkedIn throttles (429), waiting {10 * throttled} s")
-                        time.sleep(10 * throttled)
-                    else:
-                        log(f"LinkedIn '{term}' {place}: HTTP {e.code}")
-                except Exception as e:
-                    log(f"LinkedIn '{term}' {place}: error {e}")
-                time.sleep(PAUSE)
-            if throttled >= 3:
-                break
-        source_notes.append(f"LinkedIn guest API ({len([c for c in candidates if c['source'] == 'LinkedIn'])})"
-                            + ("; stopped after repeated HTTP 429" if throttled >= 3 else ""))
-    watched = [m for m in (ATS_LINE.match(x) for x in cfg.get("companies") or []) if m]
-    for m in watched:
+    for src in sources.active(cfg):
         if _stop.is_set():
             break
-        kind, slug, name = m.groups()
-        try:
-            res = [c for c in ats_parse(kind, slug, get(ATS[kind].format(slug=slug)), name.strip()) if term_match(c["title"], [t for _, t in terms])]
-            for c in res:
-                c["field"] = ""
-                add(c)
-            source_notes.append(f"{kind}:{slug} ({len(res)})")
-            log(f"{kind}:{slug}: {len(res)} matching jobs")
-        except Exception as e:
-            source_notes.append(f"{kind}:{slug} (error)")
-            log(f"{kind}:{slug}: error {e}")
-        time.sleep(PAUSE / 5)
+        if src.get("remote") and not cfg.get("remote"):
+            log(f"{src['name']}: remote jobs only, skipped")
+            continue
+        source_notes.append(sources.collect(src, terms, cfg, add, log, _stop.is_set, PAUSE))
     log(f"{len(candidates)} distinct jobs found")
 
     # prefilter
@@ -630,6 +460,7 @@ def _run(root, provider, lang="de"):
     RUN["n"]["candidates"] = len(rest)
     RUN["n"]["rejected"] = len(rejected)
     maxd = int(cfg.get("max_details") or MAX_DETAILS)
+    rest = fair_order(rest, [t for _, t in terms])
     if len(rest) > maxd:
         log(f"{len(rest)} candidates, checking the first {maxd}")
         rest = rest[:maxd]
@@ -641,14 +472,15 @@ def _run(root, provider, lang="de"):
             log("Stopped")
             break
         try:
-            if c["source"] in ATS:  # the feed already had the text (SmartRecruiters needs one more call)
-                text, meta = f"Title: {c['title']}\nCompany: {c['company']}\nPlace: {c['place']}\n\n" + (c["text"] or (sr_detail(c) if c["source"] == "smartrecruiters" else strip_html(get(c["url"]))[:12000])), {}
-            else:
-                text, meta = jobs_detail(c["id"]) if c["source"] == "jobs.ch" else li_detail(c["id"])
+            text, meta = sources.detail(c)
             for k in ("title", "company", "place"):
                 if meta.get(k):
                     c[k] = meta[k]
             c["deadline"] = meta.get("deadline", "")
+            if c["kind"] in ("feed", "ats") and c["place"] and not c.get("region") and not region_ok(c, cfg):  # the place was only on the page
+                rejected.append((c, f"outside the regions ({c['place']})" if lang == "en" else f"ausserhalb der Regionen ({c['place']})"))
+                RUN["n"]["rejected"] += 1
+                continue
         except Exception as e:
             unverifiable.append((c, str(e)[:120]))
             RUN["n"]["unverifiable"] += 1
@@ -685,6 +517,16 @@ def _run(root, provider, lang="de"):
     rel = write_run(root, cfg, rated, rejected, unverifiable, source_notes, known, lang)
     RUN["file"] = rel
     log(f"Done: {len(rated)} rated, file {rel}")
+
+
+def fair_order(jobs, terms):
+    """Order of checking when there are more jobs than may be checked: a search term in the title first, then the
+    sources in turn, so a source with many hits does not push out the others."""
+    n = {}
+    for c in jobs:
+        n[c["source"]] = n.get(c["source"], 0) + 1
+        c["_i"] = n[c["source"]]
+    return sorted(jobs, key=lambda c: (not sources.term_match(c["title"], terms), c["_i"]))
 
 
 def write_run(root, cfg, rated, rejected, unverifiable, source_notes, known, lang="de"):
@@ -800,14 +642,9 @@ def file_name(company):
 
 
 def load_posting(url):
-    """Posting text for a URL: jobs.ch and LinkedIn through their APIs, otherwise the page itself."""
-    m = re.search(r"jobs\.ch/.*?/detail/([0-9a-f-]{36})", url)
-    if m:
-        return jobs_detail(m.group(1))[0]
-    m = re.search(r"linkedin\.com/jobs/view/[^?]*?(\d{6,})", url)
-    if m:
-        return li_detail(m.group(1))[0]
-    return strip_html(get(url))[:12000]
+    """Posting text for a URL: the portals through their APIs, otherwise the page itself."""
+    r = sources.portal_detail(url)
+    return r[0] if r else strip_html(sources.get(url))[:12000]
 
 
 def draft_key(job):
@@ -882,21 +719,16 @@ if __name__ == "__main__":  # self-test without network: parser and writer again
     assert 30 < km(47.696, 8.634, 47.377, 8.540) < 40
     zh = {"centers": [{"name": "Zuerich", "lat": 47.377, "lon": 8.540}], "radius_km": 20}
     assert region_ok({"place": "x", "lat": 47.40, "lon": 8.55}, zh) and not region_ok({"place": "x", "lat": 46.95, "lon": 7.45}, zh)
-    gh = ats_parse("greenhouse", "acme", json.dumps({"jobs": [{"id": 1, "title": "Unity Developer", "location": {"name": "Zurich"},
-                    "absolute_url": "https://boards.greenhouse.io/acme/jobs/1", "content": "&lt;p&gt;C# and Unity&lt;/p&gt;", "first_published": "2026-11-01"}]}), "Acme")
-    assert gh[0]["title"] == "Unity Developer" and gh[0]["text"] == "C# and Unity" and gh[0]["company"] == "Acme" and gh[0]["source"] == "greenhouse", gh
-    pe = ats_parse("personio", "acme", '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaa">]><workzag-jobs><position><id>7</id><office>Bern</office>'
-                   '<name>Software Engineer</name><createdAt>2026-11-02T10:00:00+01:00</createdAt><jobDescriptions><jobDescription><name>Tasks</name>'
-                   '<value><![CDATA[<p>Build &amp; ship</p>]]></value></jobDescription></jobDescriptions></position></workzag-jobs>')
-    assert pe[0]["url"] == "https://acme.jobs.personio.de/job/7" and "Build & ship" in pe[0]["text"] and pe[0]["place"] == "Bern", pe
-    lv = ats_parse("lever", "acme", json.dumps([{"id": "x", "text": "Game Programmer", "categories": {"location": "Remote"}, "hostedUrl": "https://jobs.lever.co/acme/x",
-                                                 "descriptionPlain": "Unity", "lists": [{"text": "You", "content": "<li>C#</li>"}], "createdAt": 1767225600000}]))
-    sr = ats_parse("smartrecruiters", "acme", json.dumps({"content": [{"id": "9", "name": "IT Support", "location": {"city": "Basel", "remote": True}, "releasedDate": "2026-11-03"}]}))
-    assert lv[0]["place"] == "Remote" and "C#" in lv[0]["text"] and sr[0]["place"] == "Basel, Remote" and sr[0]["url"].endswith("/acme/9"), (lv, sr)
-    assert term_match("Junior Unity-Entwickler (m/w/d)", ["Unity Entwickler"]) and not term_match("Sales Manager", ["Unity", "C#"])
     assert job_key({"company": "Pixelwerk Studios AG", "title": "Junior Unity Developer (m/w/d) 80-100%"}) == \
         job_key({"company": "Pixelwerk Studios", "title": "Junior Unity Developer"}) != job_key({"company": "Pixelwerk Studios", "title": "Senior Unity Developer"})
-    assert ATS_LINE.match("greenhouse:acme Acme Ltd").groups() == ("greenhouse", "acme", "Acme Ltd")
+    rem = lambda place, *where: region_ok({"place": place}, {"remote": True, "places": ["ZH"], "remote_places": list(where)})
+    assert rem("Remote (USA)") and not rem("Remote (USA)", "Europe") and rem("Remote (Europe, UK)", "Europe") and rem("Remote", "Europe") and rem("Anywhere", "Europe") and rem("Remote (Zurich ZH)", "Europe")
+    assert region_ok({"kind": "feed", "place": ""}, {"places": ["ZH"]}) and not region_ok({"kind": "jobs", "place": ""}, {"places": ["ZH"]})
+    order = fair_order([{"source": "a", "title": "x1"}, {"source": "a", "title": "x2"}, {"source": "a", "title": "Dev 3"}, {"source": "b", "title": "x4"}], ["Dev"])
+    assert [c["title"] for c in order] == ["Dev 3", "x1", "x4", "x2"], order
+    cc = check_config({"sources": {"jobs_ch": 1, "nope": True}, "pages": 99, "companies": ["https://jobs.lever.co/acme Acme", " "],
+                       "custom_sources": [{"name": "A", "url": "https://a.ch"}, {"name": "A", "url": "https://b.ch"}]})
+    assert cc["sources"] == {"jobs_ch": True} and cc["pages"] == 5 and cc["companies"] == ["lever:acme Acme"] and [x["id"] for x in cc["custom_sources"]] == ["own_a", "own_a_2"], cc
     import tempfile
     from pathlib import Path
     tmp = Path(tempfile.mkdtemp())
@@ -907,9 +739,11 @@ if __name__ == "__main__":  # self-test without network: parser and writer again
         if german:
             (root / "Bewerbungen").mkdir()
         lay = layout.get(root)
-        save_config(root, {**load_config(root), "places": ["Bern"], "auto": True})
+        own = {"id": "own_a", "name": "A", "url": "https://a.ch/?q={term}", "on": True, "place": "=Bern", "title_format": "{company}: {title}"}
+        save_config(root, {**load_config(root), "places": ["Bern"], "auto": True, "custom_sources": [own], "remote_places": ["Europe"]})
         raw = json.loads(lay.search_config.read_text("utf-8"))
         assert (raw["orte"], raw["automatisch"]) == (["Bern"], True) if german else (raw["places"], raw["auto"]) == (["Bern"], True), raw
+        assert ("eigene_quellen" in raw) == german and load_config(root)["custom_sources"] == [own] and load_config(root)["remote_places"] == ["Europe"], raw
         assert load_config(root)["places"] == ["Bern"]
         cfg = {"fields": [{"name": "Games", "on": True}], "places": ["Zuerich"], "radius_km": 30, "remote": True, "provider": ""}
         job = {"title": "Unity Dev", "company": "Studio AG", "place": "Zuerich", "url": "https://jobs.example/1", "note": "B", "score": 6,

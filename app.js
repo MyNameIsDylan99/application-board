@@ -1084,7 +1084,7 @@ $("#palette").onclick = e => { if (e.target === $("#palette")) closePalette(); }
 $("#bPalette").onclick = openPalette;
 
 // ---------- Job search: runs and cards ----------
-let jruns = [], jrun = null, jdata = null, jcfg = null, jpoll = null, jlogNext = 0;
+let jruns = [], jrun = null, jdata = null, jcfg = null, jsrc = [], jpoll = null, jlogNext = 0;
 const jdrafts = {};
 const normUrl = u => { try { const x = new URL(u); return "https://" + x.host.replace(/^www\./, "") + x.pathname.replace(/\/$/, ""); } catch { return u; } };
 async function loadRuns(select) {
@@ -1181,7 +1181,7 @@ $("#bJResults").onclick = () => setPane("results"); $("#bJConfig").onclick = () 
 
 // ---------- Job search: settings ----------
 const lines = v => v.split("\n").map(x => x.trim()).filter(Boolean);
-async function loadConfig() { jcfg = await api("/api/search/config"); renderConfig(); loadRefs(); }
+async function loadConfig() { [jcfg, jsrc] = await Promise.all([api("/api/search/config"), api("/api/search/sources")]); renderConfig(); loadRefs(); }
 function renderConfig() {  // the keys of jcfg (fields, places, radius_km, ...) are those of search.json
   const c = jcfg; if (!c) return;
   const f = $("#jfields"); f.innerHTML = "";
@@ -1193,7 +1193,7 @@ function renderConfig() {  // the keys of jcfg (fields, places, radius_km, ...) 
   });
   $("#jPlaces").value = c.places.join("\n"); $("#jLiPlaces").value = (c.linkedin_places || []).join("\n"); $("#jExcl").value = c.exclude.join("\n"); $("#jRadius").value = c.radius_km; $("#jFresh").value = c.max_age_days;
   $("#jTargetMin").value = c.target_min; $("#jTargetMax").value = c.target_max; $("#jMaxDetails").value = c.max_details; $("#jRemote").checked = !!c.remote;
-  $("#jQJobs").checked = !!c.sources.jobs_ch; $("#jQLi").checked = !!c.sources.linkedin; $("#jScale").value = c.scale;
+  $("#jPages").value = c.pages || 1; $("#jRemotePlaces").value = (c.remote_places || []).join("\n"); $("#jScale").value = c.scale; renderSources();
   $("#jCompanies").value = (c.companies || []).join("\n"); $("#jAuto").checked = !!c.auto; $("#jAutoHour").value = c.auto_hour ?? 8;
   const sel = $("#jProvider"); sel.innerHTML = `<option value="">(${t("p_tasks")}: ${t("t_rate")})</option>` + (S.providers || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
   sel.value = c.provider || "";
@@ -1203,11 +1203,50 @@ function collectConfig() {
   c.fields = $$("#jfields .jfield").map(d => ({name: d.querySelector(".name").value.trim(), terms: lines(d.querySelector(".terms").value), on: d.querySelector(".on").checked})).filter(x => x.name);
   c.places = lines($("#jPlaces").value); c.linkedin_places = lines($("#jLiPlaces").value); c.exclude = lines($("#jExcl").value);
   c.radius_km = +$("#jRadius").value || 60; c.max_age_days = +$("#jFresh").value || 30; c.target_min = +$("#jTargetMin").value || 15; c.target_max = +$("#jTargetMax").value || 25;
-  c.max_details = +$("#jMaxDetails").value || 60; c.remote = $("#jRemote").checked; c.sources = {jobs_ch: $("#jQJobs").checked, linkedin: $("#jQLi").checked};
+  c.max_details = +$("#jMaxDetails").value || 60; c.remote = $("#jRemote").checked; c.pages = +$("#jPages").value || 1; c.remote_places = lines($("#jRemotePlaces").value);
+  c.sources = Object.fromEntries($$("#jsrclist .jsrc[data-id]").map(d => [d.dataset.id, d.querySelector(".on").checked]));
+  c.custom_sources = $$("#jsrclist .jsrc:not([data-id])").map(collectSource);
   c.scale = $("#jScale").value; c.provider = $("#jProvider").value;
   c.companies = lines($("#jCompanies").value); c.auto = $("#jAuto").checked; c.auto_hour = Math.min(23, Math.max(0, +$("#jAutoHour").value || 0));
   return c;
 }
+// Sources: the catalogue of the server plus the own ones (custom_sources). A feed of the catalogue can be copied and changed.
+const SRC_MAP = ["items", "title", "company", "place", "date", "link", "text", "title_format", "link_contains"];
+function renderSources() {
+  const list = $("#jsrclist"); list.innerHTML = "";
+  const test = (d, what) => async () => {
+    const out = d.querySelector(".res"), b = d.querySelector(".test"); out.textContent = t("j_src_testing"); b.disabled = true;
+    try {
+      const r = await postJson("/api/search/test", {source: what()});
+      const note = !r.count ? t("j_src_none") : t("j_src_found").replace("{n}", r.count).replace("{m}", r.matching) + (r.term ? ` (${r.term})` : "");
+      out.innerHTML = `<div>${esc(note)}</div>` + r.jobs.map(j => `<div class="hit${j.match ? "" : " off"}"><a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a> · ${esc(j.company)} · ${esc(j.place || "?")} · ${j.age} ${esc(t("j_src_days"))}</div>`).join("");
+    } catch (e) { out.textContent = t("error") + e.message; }
+    b.disabled = false;
+  };
+  jsrc.forEach(s => {
+    const d = document.createElement("div"); d.className = "jsrc"; d.dataset.id = s.id;
+    d.innerHTML = `<div class="row"><label><input type="checkbox" class="on" ${jcfg.sources[s.id] ? "checked" : ""}> ${esc(s.name)}</label><span class="hint">${esc(t("j_area_" + s.area))}</span><span class="spacer"></span>${s.kind === "feed" ? `<button type="button" class="copy">${t("j_src_copy")}</button>` : ""}<button type="button" class="test">${t("j_src_test")}</button></div><div class="res hint"></div>`;
+    d.querySelector(".test").onclick = test(d, () => s.id);
+    if (s.kind === "feed") d.querySelector(".copy").onclick = () => { collectConfig(); jcfg.sources[s.id] = false; addSource({...s, id: "", name: s.name + " (2)", on: true}); };
+    list.append(d);
+  });
+  (jcfg.custom_sources || []).forEach((s, i) => {
+    const d = document.createElement("div"); d.className = "jsrc own"; d.dataset.own = s.id || "";
+    d.innerHTML = `<div class="row"><label><input type="checkbox" class="on" ${s.on ? "checked" : ""}></label><input class="name" value="${esc(s.name || "")}" placeholder="${t("j_src_name")}" aria-label="${t("j_src_name")}"><input class="url" value="${esc(s.url || "")}" placeholder="https://example.com/jobs?q={term}" aria-label="${t("j_src_url")}"><button type="button" class="test">${t("j_src_test")}</button><button type="button" class="rm">${t("j_remove")}</button></div>
+      <div class="row"><label>${t("j_src_match")} <select class="match">${["title", "text", "all"].map(m => `<option value="${m}" ${(s.match || "title") === m ? "selected" : ""}>${t("j_src_match_" + m)}</option>`).join("")}</select></label><label><input type="checkbox" class="remote" ${s.remote ? "checked" : ""}> ${t("j_src_remote")}</label></div>
+      <details ${SRC_MAP.some(k => s[k]) ? "open" : ""}><summary>${t("j_src_map")}</summary><div class="hint">${esc(t("j_src_map_hint"))}</div><div class="jmap">${SRC_MAP.map(k => `<label>${t("j_map_" + k)}<input data-k="${k}" value="${esc(s[k] || "")}"></label>`).join("")}</div></details><div class="res hint"></div>`;
+    d.querySelector(".test").onclick = test(d, () => collectSource(d));
+    d.querySelector(".rm").onclick = () => { collectConfig(); jcfg.custom_sources.splice(i, 1); renderConfig(); };
+    list.append(d);
+  });
+}
+function collectSource(d) {
+  const s = {id: d.dataset.own, name: d.querySelector(".name").value.trim(), url: d.querySelector(".url").value.trim(), on: d.querySelector(".on").checked, match: d.querySelector(".match").value, remote: d.querySelector(".remote").checked};
+  d.querySelectorAll("[data-k]").forEach(i => { if (i.value.trim()) s[i.dataset.k] = i.value.trim(); });
+  return s;
+}
+function addSource(s) { jcfg.custom_sources = [...(jcfg.custom_sources || []), s]; renderConfig(); const own = $$("#jsrclist .own"); own[own.length - 1].querySelector(".name").focus(); }
+$("#bJAddSource").onclick = () => { collectConfig(); addSource({name: "", url: "", on: true, match: "title"}); };
 $("#bJAddField").onclick = () => { collectConfig(); jcfg.fields.push({name: "", terms: [], on: true}); renderConfig(); };
 $("#bJSave").onclick = async () => {
   try { jcfg = await postJson("/api/search/config", collectConfig()); renderConfig(); $("#jcfgmsg").textContent = t("j_saved") + " " + new Date().toLocaleTimeString(locale()); }

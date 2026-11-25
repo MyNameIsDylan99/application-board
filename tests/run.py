@@ -25,7 +25,7 @@ APP = Path(__file__).resolve().parents[1]
 # every process started by the tests gets its own config folder: never the real settings, keys or mail index
 os.environ["APPLICATION_BOARD_CONFIG"] = tempfile.mkdtemp(prefix="application-board-test-config-")
 os.environ.pop("BEWERBUNGS_BOARD_CONFIG", None)
-MODULES = ["storage", "ai", "userprofile", "documents", "templates", "thunderbird", "learnings", "pipeline", "finalizing", "jobsearch"]
+MODULES = ["storage", "ai", "userprofile", "documents", "templates", "thunderbird", "learnings", "pipeline", "finalizing", "sources", "jobsearch"]
 FAILED = []
 
 LETTER_DE = """# Infos zur Jobausschreibung
@@ -294,6 +294,7 @@ def run_api(a, data, tmp):
     pc = a.call("/api/posting/check", {"path": "applications/Weg AG/letter_Weg.md"})
     check("posting of one application checked", pc.get("status") == "gone" and pc.get("reason") == "HTTP 404", pc)
     check("posting that is gone is marked", cj.get("gone") == 1 and run["jobs"][0]["check"]["status"] == "gone", (cj, run["jobs"]))
+    source_tests(a)
     # moved folder keeps its state
     (data / "applications" / "Muster AG").rename(data / "applications" / "Muster AG neu")
     moved = {i["path"]: i for i in a.call("/api/letters")}.get("applications/Muster AG neu/letter_Muster.md", {})
@@ -339,6 +340,47 @@ def start_server(data, tmp, name):
         except (OSError, ValueError):
             time.sleep(0.25)
     return a, server
+
+
+def source_tests(a):
+    """Own sources: checked on saving, tested with the Test button and used by a whole built-in search (local feed, mock AI)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Feed(BaseHTTPRequestHandler):
+        def do_GET(self):
+            items = "".join(f"<item><title>{t}</title><link>http://127.0.0.1:{self.server.server_port}/jobs/{i}</link><description>{'C# and Unity. ' * 60}</description></item>"
+                            for i, t in enumerate(("Pixelwerk: Unity Developer", "Pixelwerk: Senior Unity Lead", "Pixelwerk: Cook")))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(f'<?xml version="1.0"?><rss><channel>{items}</channel></rss>'.encode())
+
+        def log_message(self, *x):
+            pass
+    srv = HTTPServer(("127.0.0.1", 0), Feed)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    cfg = a.call("/api/search/config")
+    own = {"name": "Local feed", "url": f"http://127.0.0.1:{srv.server_port}/feed", "on": True, "match": "title", "title_format": "{company}: {title}", "place": "=Bern"}
+    saved = a.call("/api/search/config", {"sources": {}, "custom_sources": [own], "companies": ["https://jobs.lever.co/acme Acme"], "exclude": ["Senior"],
+                                          "fields": [{"name": "Games", "terms": ["Unity"], "on": True}], "places": ["Bern"]})
+    check("own source and careers page saved", saved["custom_sources"][0]["id"] == "own_local_feed" and saved["companies"] == ["lever:acme Acme"], saved)
+    check("catalogue of sources", {"jobs_ch", "job_room", "linkedin", "arbeitnow"} <= {s["id"] for s in a.call("/api/search/sources")})
+    t = a.call("/api/search/test", {"source": own})
+    check("own source tested", (t["count"], t["matching"]) == (3, 2) and t["jobs"][0]["company"] == "Pixelwerk" and t["jobs"][0]["place"] == "Bern", t)
+    for what, bad in (("file address", {"custom_sources": [{"name": "x", "url": "file:///etc/passwd"}]}), ("company", {"companies": ["Acme"]})):
+        r = a.call("/api/search/config", bad)
+        check(f"invalid {what} refused", r.get("_status", 200) >= 400 and bool(r.get("error")), r)
+    a.call("/api/search/config", {"companies": []})
+    a.call("/api/search/start", {"mode": "builtin"})
+    for _ in range(100):
+        st = a.call("/api/search/status")
+        if st["state"] != "running":
+            break
+        time.sleep(0.2)
+    log = "\n".join(st.get("log", []))
+    check("search over an own source", st["state"] == "done" and "Local feed: 2 hits of 3" in log and st["n"]["candidates"] == 1 and st["n"]["rejected"] >= 1, st)
+    a.call("/api/search/config", {k: cfg[k] for k in ("sources", "custom_sources", "companies", "exclude", "fields", "places")})
+    srv.shutdown()
 
 
 def legacy_tests(tmp):

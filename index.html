@@ -138,12 +138,15 @@
           <div class="row"><label data-i18n="j_target">Zielanzahl</label><input type="number" id="jTargetMin" min="1" max="200"> <span data-i18n="j_to">bis</span> <input type="number" id="jTargetMax" min="1" max="200"></div>
           <div class="row"><label data-i18n="j_max_details">Höchstens geprüfte Anzeigen</label><input type="number" id="jMaxDetails" min="1" max="500"></div>
           <div class="row"><label data-i18n="j_remote">Remote einbeziehen</label><input type="checkbox" id="jRemote"></div>
-          <div class="row"><label data-i18n="j_sources">Quellen</label><label><input type="checkbox" id="jQJobs"> jobs.ch</label> <label><input type="checkbox" id="jQLi"> LinkedIn</label></div>
+          <div class="row"><label data-i18n="j_pages">Seiten pro Suchbegriff</label><input type="number" id="jPages" min="1" max="5"></div>
+          <div><label data-i18n="j_remote_places">Remote: erlaubte Regionen</label><textarea id="jRemotePlaces" rows="3" placeholder="Europe&#10;Switzerland"></textarea><div class="hint" data-i18n="j_remote_places_hint"></div></div>
           <div><label data-i18n="j_companies">Firmen beobachten</label><textarea id="jCompanies" rows="3" placeholder="greenhouse:acme Acme Ltd"></textarea><div class="hint" data-i18n="j_companies_hint"></div></div>
           <div class="row"><label data-i18n="j_auto">Täglich automatisch suchen</label><input type="checkbox" id="jAuto"><label data-i18n="j_auto_hour">ab</label><input type="number" id="jAutoHour" min="0" max="23"><span data-i18n="j_auto_clock">Uhr</span></div>
           <div class="hint" data-i18n="j_auto_hint"></div>
           <div class="row"><label data-i18n="j_provider">Anbieter für die Bewertung</label><select id="jProvider"></select></div>
         </section>
+        <section id="jsources"><h2 data-i18n="j_sources">Quellen</h2><div class="hint" data-i18n="j_sources_hint"></div><div id="jsrclist"></div>
+          <button id="bJAddSource" data-i18n="j_src_add">Eigene Quelle hinzufügen</button><div class="hint" data-i18n="j_src_add_hint"></div></section>
         <section><h2 data-i18n="j_scale">Bewertungsraster</h2><textarea id="jScale" rows="10"></textarea></section>
         <div class="row"><button id="bJSave" class="primary" data-i18n="j_save">Speichern</button><span id="jcfgmsg" class="hint"></span></div>
         <section><h2 data-i18n="j_refs">Skill-Dateien</h2><div id="jrefs"></div></section>
@@ -454,7 +457,7 @@
   <form id="newForm" class="prform">
     <label class="wide"><span data-i18n="new_link">Link zur Anzeige</span><input name="url" type="url" placeholder="https://"></label>
     <label class="wide"><span data-i18n="new_text">Oder den Anzeigentext einfügen</span><textarea name="text" rows="8"></textarea></label>
-    <label><span data-i18n="new_company">Firma (bei jobs.ch und LinkedIn automatisch)</span><input name="company"></label>
+    <label><span data-i18n="new_company">Firma (bei jobs.ch, jobup.ch, job-room.ch und LinkedIn automatisch)</span><input name="company"></label>
     <label><span data-i18n="new_title">Stelle (optional)</span><input name="title"></label>
     <label><span data-i18n="new_tone">Ton</span><select name="tone"><option value="" data-i18n="tone_default">wie bisher</option><option value="formal" data-i18n="tone_formal">förmlich</option><option value="warm" data-i18n="tone_warm">herzlich</option><option value="concise" data-i18n="tone_concise">knapp</option></select></label>
     <div class="wide btns"><span id="newErr" class="err"></span><button type="submit" class="primary" data-i18n="new_go">Entwurf schreiben</button></div>

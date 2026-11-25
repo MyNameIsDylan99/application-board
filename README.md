@@ -32,8 +32,9 @@ The interface is in German and English (Settings → General). Your data keeps t
   - Then runs fixed checks (one page, date, recipient, all paragraphs) and optionally a final AI check.
   - You can accept hints directly.
 - **Job search:**
-  - jobs.ch and LinkedIn without login, with a prefilter
-  - Watched companies through their public job feeds: Personio, Greenhouse, Lever, SmartRecruiters
+  - Portals without login, each switched on and tested on its own: jobs.ch, jobup.ch, job-room.ch and SwissDevJobs (Switzerland), LinkedIn, Arbeitnow (Germany, Europe), Himalayas, Jobicy, Remote OK and We Work Remotely (remote), Work With Indies and Remote Game Jobs (games)
+  - Your own sources: the address of an RSS or Atom feed, a JSON interface or a careers page (see below)
+  - Watched companies through their public job feeds: Personio, Greenhouse, Lever, SmartRecruiters, Ashby, Recruitee, Workable, Teamtailor; the address of the careers page is enough
   - Optionally once a day by itself while the board runs
   - The AI rates each job with a grade (A/B/C) and a score from 1 to 10, with the jobs you applied to and the ones you marked as not interesting as examples.
   - Results appear as cards. "Draft application" writes a first application from a posting.
@@ -109,12 +110,22 @@ The server only listens on `127.0.0.1`. Data goes out only in these cases, and o
 |---|---|---|
 | A task runs with an AI provider (feedback, draft, rating, checks, preparation, mails, learnings, profile) | The text the task needs: the letter, the posting, your profile text and style, earlier feedback rounds and your memories, for the preparation and the mails the log with mails | The provider you chose for that task. With Ollama or LM Studio it stays on your computer |
 | Claude Code works on a letter | What Claude Code reads itself: it may read files in the data folder (and loads its `CLAUDE.md` and memory), but edit only that one letter; no shell, no web | Anthropic, under your Claude Code account |
-| Job search | Search terms and places; nothing about you | jobs.ch, LinkedIn's public guest pages, the job feeds of watched companies |
+| Job search | Search terms and places; nothing about you | The sources you switched on, your own sources and the job feeds of watched companies |
 | Drafting from a link | The address of the posting | The site of the posting |
-| "Still open?" in the job search | A request for each posting of the run | The sites of the postings (jobs.ch and LinkedIn through their public APIs) |
+| "Still open?" in the job search | A request for each posting of the run | The sites of the postings (the portals through their public APIs) |
 | Update check (off until you switch it on) | A request for the newest release, with no data of yours | api.github.com |
 
 Never sent: API keys (they stay in `secrets.json` and never reach the browser), your Thunderbird mails (read locally, only a mail you add to a log can later be part of a prompt), the usage log (numbers only, kept in the config folder).
+
+## Your own job sources
+
+Job search → Search settings → Sources → "Add your own source". Enter a name and an address; the format (RSS/Atom, JSON, web page with job links or schema.org data) is recognised. "Test" shows what was read and which jobs fit your search terms, also before saving.
+
+- Placeholders in the address: `{term}` (one request per search term), `{page}` (page number, up to "Pages per search term"), `{days}` (freshness).
+- Choose whether a search term must be in the title, in the title or the text, or not at all.
+- Rarely needed: map fields by name or path (`company.name`), give a fixed value (`=Zurich`), build the link (`https://example.com/jobs/{id}`), split the title (`{company}: {title}`), or say what job links of a web page contain (`/jobs/`).
+- "Copy as own source" turns a built-in feed into one you can change.
+- Addresses with a password or key do not belong here: they would be readable in `search.json`. Please respect the terms of use of the sites you add.
 
 ## Use it from Claude (MCP)
 
@@ -193,7 +204,8 @@ Finalizing works like this:
 | `finalizing.py`, `finalize.py` | Word/PDF from the template and the checks. `finalize.py` also works on the command line: `python3 finalize.py "<company>" --company-short X --repo-root <data folder>` |
 | `layout.py` | Folder, file and key names of a data folder; reads and writes the German layout of the first versions |
 | `job_history.py` | URL normalization and history of the job search (also a command line tool) |
-| `jobsearch.py` | Job search (jobs.ch, LinkedIn, company job feeds), rating, result file, "still open?" check, drafting an application |
+| `sources.py` | Sources of the job search: catalogue of portals, company feeds, generic reader for own sources (RSS/Atom, JSON, web pages) |
+| `jobsearch.py` | Job search (prefilter, run), rating, result file, "still open?" check, drafting an application |
 | `pipeline.py`, `pipeline.js` | Pipeline, dossier, interview preparation |
 | `thunderbird.py` | Mail index from the local Thunderbird profile, read only |
 | `learnings.py`, `learnings.js` | Feedback history and learnings |
@@ -207,7 +219,7 @@ Tests: `python3 tests/run.py` runs every self-test and an API test against a dem
 
 ## Limits
 
-- The built-in job search knows jobs.ch (Switzerland) and LinkedIn. LinkedIn is read through its public guest pages without login; this is not an official interface and may break or conflict with LinkedIn's terms of use. You can switch it off under job search settings.
+- New data folders start with jobs.ch (Switzerland) and LinkedIn switched on; the other sources are one click away under Job search → Search settings. The sources are public interfaces and feeds that can change at any time; "Test" shows whether one still works. Pages that load their jobs with JavaScript or block programs cannot be read as own source. LinkedIn is read through its public guest pages without login; this is not an official interface and may break or conflict with LinkedIn's terms of use. You can switch it off under job search settings.
 - Windows is untested so far. The board is developed and used on Linux; the code takes Windows into account (paths, `application-board.cmd`, Thunderbird and LibreOffice locations), and the automatic tests run on Windows too, but nobody has used it there for real yet. Please report problems as an issue.
 - There is no installer: a release is a zip with the start script, and Python 3 has to be installed.
 - The mail search and matching see the last 12 months of each Thunderbird folder (at most 1 GB per folder on the first read). The index is kept in `mailindex.json.gz` in the config folder, so a restart does not read the folders again.

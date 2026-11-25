@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+- Job search: ten more sources, each with its own switch: jobup.ch, job-room.ch and SwissDevJobs (Switzerland), Arbeitnow (Germany, Europe), Himalayas, Jobicy, Remote OK and We Work Remotely (remote), Work With Indies and Remote Game Jobs (games). Existing settings stay as they are; the new sources are off until you tick them.
+- Your own sources: RSS/Atom, JSON or a careers page, with placeholders for search term, page and freshness, optional field mapping and a "Test" button. Built-in feeds can be copied and changed.
+- Watched companies also on Ashby, Recruitee, Workable and Teamtailor, and by the address of the careers page. Lines that do not fit are refused on saving instead of being ignored.
+- New settings: pages per search term, allowed regions for remote jobs.
+- When there are more hits than may be checked, jobs with a search term in the title come first and the sources take turns, so one large source no longer pushes out the others. Short search terms must begin a word ("Unity" no longer finds "Community").
+- "Posting still open?" no longer calls a posting gone when its page could not be read properly. Links of feeds into the own network are not opened.
+
 ## 0.6.0
 
 - English data folder: new data folders use `application-board.json`, `profile/` (`profile.md`, `style.md`, `search-profile.md`, `grading.md`, `cv.md`, `documents/<category>/`, `templates/`) and `applications/<company>/letter_X.md` with `log_X.md`, `_review/` (`state.json`, `feedback_log.jsonl`, `learnings_state.json`, `backups/`) and `_jobsearch/` (`jobsearch_<date>.md`, `search.json`, `history.jsonl`, `postings.json`). JSON keys and stored values are English too (`town`, `rules`, `file_names` with `{company}`, status `open`/`sent`/`archived`, phases `sent`/`no_reply`/`replied`/`interview`/`offer`/`rejected`).

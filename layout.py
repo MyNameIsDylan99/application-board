@@ -65,6 +65,7 @@ _PROFILE = {"ort": "town", "telefon": "phone", "adresse": "address", "foto": "ph
 _SEARCH = {"felder": "fields", "an": "on", "begriffe": "terms", "orte": "places", "zentren": "centers", "umkreis_km": "radius_km",
            "frische_tage": "max_age_days", "ziel_min": "target_min", "ziel_max": "target_max", "quellen": "sources", "ausschluss": "exclude",
            "raster": "scale", "anbieter": "provider", "ausgeblendet": "hidden", "linkedin_orte": "linkedin_places", "firmen": "companies",
+           "eigene_quellen": "custom_sources", "seiten": "pages", "remote_regionen": "remote_places",
            "automatisch": "auto", "automatisch_stunde": "auto_hour"}
 FILE_KEYS = {
     "profile_file": _PROFILE,

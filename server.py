@@ -42,7 +42,7 @@ import templates
 import thunderbird
 import userprofile
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 DIR = Path(__file__).resolve().parent
 SETTINGS = storage.config_file("settings.json")
 STATIC = {"/": "index.html", "/app.js": "app.js", "/app.css": "app.css", "/i18n.js": "i18n.js", "/boot.js": "boot.js", "/pipeline.js": "pipeline.js",
@@ -999,6 +999,7 @@ GET = {
     "/api/search/runs": lambda q, b: jobsearch.runs(ROOT),
     "/api/search/run": get_search_run,
     "/api/search/config": lambda q, b: jobsearch.load_config(ROOT),
+    "/api/search/sources": lambda q, b: jobsearch.sources.BUILTIN,
     "/api/search/status": get_search_status,
     "/api/dirs": lambda q, b: list_dirs(q1(q, "path", "")),
     "/api/rounds": get_rounds,
@@ -1049,8 +1050,19 @@ def post_search_config(q, body):
         if k not in cfg:
             raise ValueError(f"unknown field {k}")
         cfg[k] = v
+    try:
+        jobsearch.check_config(cfg)
+    except ValueError as e:
+        raise ValueError((f"Diese Quelle oder Firma passt nicht: {e}" if lang() == "de" else f"This source or company does not fit: {e}"))
     jobsearch.save_config(ROOT, cfg)
     return cfg
+
+
+def post_search_test(q, body):
+    """Asks one source (an id of the catalogue, or an own source that need not be saved yet) for its first search term."""
+    cfg, src = jobsearch.load_config(ROOT), body["source"]
+    src = {**jobsearch.sources.clean_custom(src), "kind": "feed"} if isinstance(src, dict) else jobsearch.sources.BY_ID[src]
+    return jobsearch.sources.preview(src, jobsearch.terms_of(cfg), cfg)
 
 
 def post_search_start(q, body):
@@ -1072,9 +1084,9 @@ def post_draft(q, body):
         raise ValueError("The link must start with http:// or https://")
     if not job.get("url") and not job.get("text", "").strip():
         raise ValueError("Link or posting text missing")
-    if not job.get("company", "").strip() and not re.search(r"jobs\.ch/|linkedin\.com/jobs", job.get("url", "")):
+    if not job.get("company", "").strip() and not re.search(r"jobs\.ch/|jobup\.ch/|job-room\.ch/|linkedin\.com/jobs", job.get("url", "")):
         raise ValueError("Company missing")
-    if not job.get("company", "").strip():  # jobs.ch and LinkedIn know the company
+    if not job.get("company", "").strip():  # the portals know the company
         try:
             meta = jobsearch.load_posting(job["url"])
             job["text"] = meta
@@ -1245,6 +1257,7 @@ POST = {
     "/api/search/stop": lambda q, b: (jobsearch.stop(), {"state": jobsearch.RUN["state"]})[1],
     "/api/search/hide": post_search_hide,
     "/api/search/check": post_search_check,
+    "/api/search/test": post_search_test,
     "/api/posting/check": post_posting_check,
     "/api/search/draft": post_draft,
     "/api/memfile": post_memfile,

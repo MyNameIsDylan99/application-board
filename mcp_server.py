@@ -19,7 +19,7 @@ import pipeline
 import storage
 import userprofile
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 LETTER = re.compile(r"^(applications/[^/]+/letter|Bewerbungen/[^/]+/Bewerbungsschreiben)[^/]*\.md$")  # English or German layout
 
 

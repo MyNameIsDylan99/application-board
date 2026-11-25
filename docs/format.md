@@ -105,7 +105,7 @@ Event types: `Mail in` (Mail rein), `Mail out` (Mail raus), `Appointment` (Termi
 | `applications/_review/feedback_log.jsonl` | one line per feedback round |
 | `applications/_review/learnings_state.json` | up to which round the learnings were evaluated |
 | `applications/_review/backups/` | versions of letters and profile files, shown under "Earlier versions" |
-| `applications/_jobsearch/search.json` | job search settings |
+| `applications/_jobsearch/search.json` | job search settings: fields with search terms, places, `sources` (id of the catalogue in `sources.py`: on or off), `custom_sources`, `companies` ... |
 | `applications/_jobsearch/history.jsonl` | every job found so far, to mark new ones |
 | `applications/_jobsearch/postings.json` | result of "Still open?" per posting link |
 | `application-board.json` | your profile, see the README |
