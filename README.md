@@ -15,7 +15,7 @@ The interface is in German and English (Settings → General). Your data keeps t
 ## Features
 
 - **Applications:**
-  - List or board view (Open, Final, Sent), plus an archive for finished ones
+  - List or board view (Open, Final, Sent), plus an archive for finished ones; pinned applications stay at the top
   - New application from a link or a pasted posting (`n`): the AI writes the draft, in the tone you pick (formal, warm, concise)
   - Earlier versions of every letter with diff and restore (`v`)
   - Spell check in the language of the letter, and a rule check (word range, forbidden characters) from your profile

@@ -148,6 +148,7 @@ body[data-view] [data-view-for][hidden]{display:none!important}
 i.fb{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
 i.run{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
 i.pdf{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
+i.pin{border:0!important;padding:0!important}
 i.score{font-weight:700;color:var(--fg)}
 i.score.A{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,transparent)}
 i.score.B{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,transparent)}

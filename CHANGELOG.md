@@ -7,6 +7,8 @@
 - Watched companies also on Ashby, Recruitee, Workable and Teamtailor, and by the address of the careers page. Lines that do not fit are refused on saving instead of being ignored.
 - New settings: pages per search term, allowed regions for remote jobs.
 - When there are more hits than may be checked, jobs with a search term in the title come first and the sources take turns, so one large source no longer pushes out the others. Short search terms must begin a word ("Unity" no longer finds "Community").
+- Applications can be pinned (menu or `P`): they stay at the top of their column, also when sorting by score. Stored as `pinned` in the state file.
+- The editors no longer draw the focus ring around the text area.
 - "Posting still open?" no longer calls a posting gone when its page could not be read properly. Links of feeds into the own network are not opened.
 
 ## 0.6.0

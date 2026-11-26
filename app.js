@@ -155,7 +155,7 @@ const match = i => !filter || (i.company + " " + (i.title || i.file)).toLowerCas
 let sortScore = false;
 try { sortScore = ["score", "wertung"].includes(localStorage.getItem("rv-sort")); } catch {}
 const byScore = (a, b) => (b.score ?? 0) - (a.score ?? 0);  // without a score to the end, otherwise stable (company)
-const ordered = () => cols().flatMap(k => { const g = items.filter(i => i.status === k && match(i)); return sortScore ? g.sort(byScore) : g; });
+const ordered = () => cols().flatMap(k => { const g = items.filter(i => i.status === k && match(i)); if (sortScore) g.sort(byScore); return g.sort((a, b) => !!b.pinned - !!a.pinned); });
 function setSort(score) {
   sortScore = score;
   try { localStorage.setItem("rv-sort", score ? "score" : "company"); } catch {}
@@ -172,7 +172,7 @@ async function refresh() {
 
 function itemChips(it) {
   const days = it.since ? Math.floor((Date.now() - new Date(it.since)) / 864e5) : 0;
-  return (it.score ? `<i class="score ${it.note || ""}" title="${t("j_score")}${it.note ? ", " + it.note : ""}">${it.score}/10</i>` : "") + (finalizing.has(it.path) ? `<i class="run">${t("finalizing")}</i>` : running.has(it.path) ? `<i class="run">${t("ai_short")}</i>` : it.feedback ? `<i class="fb">FB</i>` : "") + (it.pdf ? `<i class="pdf">PDF</i>` : "") +
+  return (it.pinned ? `<i class="pin" title="${t("pinned")}">📌</i>` : "") + (it.score ? `<i class="score ${it.note || ""}" title="${t("j_score")}${it.note ? ", " + it.note : ""}">${it.score}/10</i>` : "") + (finalizing.has(it.path) ? `<i class="run">${t("finalizing")}</i>` : running.has(it.path) ? `<i class="run">${t("ai_short")}</i>` : it.feedback ? `<i class="fb">FB</i>` : "") + (it.pdf ? `<i class="pdf">PDF</i>` : "") +
     (days > 1 ? `<i>${days} ${t("days")}</i>` : "");
 }
 let boardMode = false;
@@ -254,6 +254,7 @@ function header() {
   $("#bWarn").textContent = `${hints.length} ${t(hints.length === 1 ? "fin_hint" : "fin_hints")}`; $("#bWarn").title = hints.join("\n");
   $("#bRefin").disabled = !cur;
   $("#bBack").hidden = !cur || s === "open" || s === "archived";
+  $("#bPinM").hidden = !cur; $("#bPinM").firstElementChild.textContent = t(cur?.pinned ? "unpin" : "pin");
   $("#bArchiveM").hidden = !cur; $("#bArchiveM").firstElementChild.textContent = t(s === "archived" ? "unarchive" : "archive");
   $("#bArchive").classList.toggle("on", showArchive);
   $("#bBack").firstElementChild.textContent = s === "sent" ? t("back_final") : t("back_offen");
@@ -960,7 +961,7 @@ document.addEventListener("keydown", e => {
     A: applyFeedback, F: () => cur?.status === "open" && finalizeLetter(), S: () => setStatus("sent"),
     O: () => cur && setStatus(cur.status === "sent" ? "final" : "open"),
     o: () => $("#bLink").click(), p: () => togglePanel("preview"), m: () => setLive(!live), r: () => refresh().then(() => msg(t("list_reloaded"))),
-    "/": openSearch, z: () => toggleMax(activePanel), d: () => showDiff(), ",": openSettings, v: openVersions, n: openNewApp,
+    "/": openSearch, z: () => toggleMax(activePanel), d: () => showDiff(), ",": openSettings, v: openVersions, n: openNewApp, P: () => togglePin().catch(e => msg(t("error") + e.message, true)),
   };
   if (S.vim && k === "g") { if (pendingG && view !== "jobs") go(0); pendingG = !pendingG; setTimeout(() => pendingG = false, 600); return; }
   const MAIN = ["letters", "pipeline", "jobs", "profile", "knowledge"];
@@ -1042,7 +1043,7 @@ function paletteItems() {
     act(t("final"), "F", () => finalizeLetter()), act(t("mark_final"), "", () => setStatus("final")), act(t("refinal"), "", () => finalizeLetter()),
     act(t("cl"), "", () => openFile(cur?.files?.cl_pdf)), act(t("cv"), "", () => openFile(cur?.files?.cv_pdf)), act(t("sent"), "S", () => setStatus("sent")), act(t("st_open"), "O", () => setStatus("open")),
     act(t("am_btn"), "", () => cur && startAppMail(cur.path)),
-    act(t("new_app"), "n", openNewApp), act(t("versions"), "v", openVersions), act(t("archive"), "", () => toggleArchiveLetter()), act(t("archive_show_title"), "", () => setShowArchive(!showArchive)),
+    act(t("new_app"), "n", openNewApp), act(t("versions"), "v", openVersions), act(t("pin") + " / " + t("unpin"), "P", () => togglePin()), act(t("archive"), "", () => toggleArchiveLetter()), act(t("archive_show_title"), "", () => setShowArchive(!showArchive)),
     act(t("apply"), "A", applyFeedback), act(t("diff_title"), "d", () => showDiff()), act(t("preview"), "p", () => togglePanel("preview")),
     act(live ? t("raw") : t("live"), "m", () => setLive(!live)), act(t("link"), "o", () => $("#bLink").click()), act(t("pc_btn"), "", () => checkPosting(cur?.path)), act(t("list_reloaded"), "r", () => refresh()),
     act(t("a_board"), "", () => setListMode(!boardMode)), act(t("a_maxpanel"), "z", () => toggleMax(activePanel)), act(t("s_layout_reset"), "", resetLayout),
@@ -1357,6 +1358,14 @@ function toggleArchiveLetter(it = cur) {
   (cur?.path === it.path ? setStatus(to) : setStatusFor(it, to)).catch(e => msg(t("error") + e.message, true));
 }
 $("#bArchiveM").onclick = () => toggleArchiveLetter();
+async function togglePin(it = cur) {
+  if (!it) return;
+  if (cur?.path === it.path && (dirtyEd || dirtyFb)) await save();
+  await post({path: it.path, pinned: !it.pinned});
+  msg(`${it.company}: ${t(it.pinned ? "unpinned" : "pinned")}`);
+  await refresh();
+}
+$("#bPinM").onclick = () => togglePin().catch(e => msg(t("error") + e.message, true));
 $("#bCheckM").onclick = () => checkPosting(cur?.path);
 
 // ---------- New application from a link or a pasted posting ----------

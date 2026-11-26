@@ -1237,6 +1237,11 @@ def post_letter(q, body):
                 pipeline.add_event(p, log_title(p), "status", pipeline.phase_name("sent", p, lang()), lang=lang())
             entry["status"] = body["status"]
             entry["since"] = date.today().isoformat()
+        if "pinned" in body:
+            if body["pinned"]:
+                entry["pinned"] = True
+            else:
+                entry.pop("pinned", None)
         if "phase" in body:
             if body["phase"] not in pipeline.PHASES:
                 raise ValueError("unknown phase")

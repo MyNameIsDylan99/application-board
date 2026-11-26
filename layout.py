@@ -70,7 +70,7 @@ _SEARCH = {"felder": "fields", "an": "on", "begriffe": "terms", "orte": "places"
 FILE_KEYS = {
     "profile_file": _PROFILE,
     "state": {"seit": "since", "antwort": "answer", "pruefung": "hints", "finalisiert": "finalized", "dateien": "files",
-              "vorlagen": "templates", "sprache": "language", "kurz": "short"},
+              "vorlagen": "templates", "sprache": "language", "kurz": "short", "angepinnt": "pinned"},
     "search_config": _SEARCH,
     "history": {"firma": "company", "titel": "title", "gefunden": "found"},
     "postings": {"grund": "reason", "geprueft": "checked"},

@@ -409,6 +409,10 @@ def legacy_tests(tmp):
         a.call("/api/letter", {"path": rel, "phase": "interview"})
         st = raw("Bewerbungen/_Review/review.json")[rel]
         check("German layout: status written with the German values", (st["status"], st["phase"], "seit" in st, "since" in st) == ("abgeschickt", "gespraech", True, False), st)
+        a.call("/api/letter", {"path": rel, "pinned": True})
+        pinned = raw("Bewerbungen/_Review/review.json")[rel].get("angepinnt")
+        a.call("/api/letter", {"path": rel, "pinned": False})
+        check("German layout: pin stored as angepinnt and removed again", pinned is True and "angepinnt" not in raw("Bewerbungen/_Review/review.json")[rel])
         check("German layout: log next to the letter", (letter.parent / "Verlauf_Muster.md").is_file() and a.call("/api/pipeline")[0]["phase"] == "interview")
         prof = a.call("/api/profile")["profile"]
         check("German layout: profile read", prof["town"] == "Bern" and prof["file_names"]["cover_letter"] == "CL_{name}_{company}_{mmyy}"
