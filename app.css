@@ -177,6 +177,7 @@ i.score.C{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,trans
 .CodeMirror-gutters{background:var(--panel);border:0;padding-right:4px}
 .CodeMirror-linenumber{color:var(--line2);font-size:11px}
 .CodeMirror-cursor{border-left-color:var(--fg)}
+.CodeMirror .CodeMirror-code:focus-visible{outline:none!important}  /* contenteditable input: the global focus ring drew a box around the text */
 .cm-fat-cursor .CodeMirror-cursor{background:var(--accent);opacity:.6}
 .CodeMirror-selected,.CodeMirror-focused .CodeMirror-selected{background:var(--sel)}
 .cm-header{color:var(--accent)}
